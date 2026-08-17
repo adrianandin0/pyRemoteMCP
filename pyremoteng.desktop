@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=pyRemoteNG
+Comment=Multi-Protocol Remote Connections Manager for Linux
+Exec=pyremoteng
+Icon=utilities-terminal
+Terminal=false
+Type=Application
+Categories=Network;RemoteAccess;Utility;
+Keywords=RDP;SSH;VNC;Telnet;mRemoteNG;

@@ -1,0 +1,514 @@
+import os
+import stat
+import socket
+import shutil
+import subprocess
+import datetime
+import paramiko
+from typing import List, Dict, Any, Optional, Callable
+from pyremoteng.engine.ssh_engine import configure_security_options
+from pyremoteng.engine.shell_file_engine import ShellFileEngine
+
+
+class NativePTYSFTPEngine:
+    """
+    Native CLI Fallback SFTP Engine using Linux OpenSSH sftp & scp binaries (sshpass, sftp, scp).
+    Executes real binary SFTP subsystem batch commands (sftp -b -).
+    Parses strictly UNIX file permissions ('-', 'd', 'l'), filtering out MOTD / shell banners completely.
+    """
+
+    def __init__(self, hostname: str, port: int = 22, username: str = "", password: str = "",
+                 key_filename: Optional[str] = None, log_callback: Optional[Callable[[str], None]] = None):
+        self.hostname = hostname
+        self.port = port
+        self.username = username
+        self.password = password
+        self.key_filename = key_filename
+        self.log_callback = log_callback
+        self.is_connected = False
+
+    def log(self, msg: str):
+        if self.log_callback:
+            ts = datetime.datetime.now().strftime("%H:%M:%S")
+            self.log_callback(f"[{ts}] [Native SFTP] {msg}\n")
+
+    def connect(self) -> bool:
+        """Verify remote host reachability via native SSH port test."""
+        self.log(f"Testing TCP connection to {self.hostname}:{self.port}...")
+        try:
+            s = socket.create_connection((self.hostname, self.port), timeout=5)
+            s.close()
+            self.is_connected = True
+            self.log("TCP connection successful. Native SFTP ready.")
+            return True
+        except Exception as e:
+            self.is_connected = False
+            self.log(f"TCP connection failed: {str(e)}")
+            raise Exception(f"Native SFTP Host unreachable: {str(e)}")
+
+    def get_current_dir(self) -> str:
+        return "."
+
+    def _get_legacy_options(self) -> List[str]:
+        return [
+            "-o", "KexAlgorithms=+diffie-hellman-group1-sha1,diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha1",
+            "-o", "HostKeyAlgorithms=+ssh-rsa",
+            "-o", "Ciphers=+aes128-cbc,3des-cbc,aes192-cbc,aes256-cbc",
+            "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa"
+        ]
+
+    def list_remote_dir(self, remote_path: str = ".") -> List[Dict[str, Any]]:
+        """Lists remote directory using real OpenSSH sftp binary batch execution."""
+        sshpass = shutil.which("sshpass")
+        sftp_bin = shutil.which("sftp")
+        target = f"{self.username}@{self.hostname}" if self.username else self.hostname
+
+        self.log(f"Listing remote directory '{remote_path}' via ssh ls...")
+
+        cmd = []
+        if sshpass and self.password:
+            cmd.extend([sshpass, "-p", self.password])
+
+        cmd.extend([
+            "ssh",
+            "-F", "/dev/null",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null"
+        ])
+        
+        if self.key_filename:
+            cmd.extend(["-i", self.key_filename])
+
+        cmd.extend(self._get_legacy_options())
+        cmd.extend([
+            "-p", str(self.port),
+            target,
+            f"ls -la \"{remote_path}\""
+        ])
+
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            lines = res.stdout.splitlines()
+            items = []
+            for line in lines:
+                line_str = line.strip()
+                if not line_str or line_str.startswith("total "):
+                    continue
+
+                tokens = line_str.split()
+                if len(tokens) >= 8 and tokens[0][0] in ('-', 'd', 'l', 'c', 'b'):
+                    perms = tokens[0]
+                    is_dir = perms.startswith("d")
+
+                    name_idx = 8 if len(tokens) >= 9 else 7
+                    name = " ".join(tokens[name_idx:])
+                    if " -> " in name:
+                        name = name.split(" -> ")[0].strip()
+
+                    if name in (".", "..") or not name:
+                        continue
+
+                    try:
+                        size = int(tokens[4])
+                    except Exception:
+                        size = 0
+
+                    items.append({
+                        "name": name,
+                        "size": size if not is_dir else 0,
+                        "is_dir": is_dir,
+                        "permissions": perms,
+                        "mtime": 0
+                    })
+
+            items.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
+            self.log(f"Listing completed: {len(items)} items found.")
+            
+            if res.returncode != 0:
+                self.log(f"Native SFTP returned code {res.returncode}:\n{res.stderr}\n{res.stdout}")
+                if len(items) == 0:
+                    raise Exception(f"SFTP Error ({res.returncode}): {res.stderr.strip() or res.stdout.strip()}")
+                
+            if len(items) == 0 and (res.stdout or res.stderr):
+                self.log(f"SFTP Output Raw:\n{res.stdout}\n{res.stderr}")
+            return items
+        except Exception as e:
+            self.log(f"Native SFTP list error: {str(e)}")
+            raise Exception(f"Native SFTP list error: {str(e)}")
+
+    def upload_file(self, local_path: str, remote_path: str, progress_callback: Optional[Callable[[int, int], None]] = None):
+        """Uploads file using native SCP."""
+        sshpass = shutil.which("sshpass")
+        target = f"{self.username}@{self.hostname}:{remote_path}" if self.username else f"{self.hostname}:{remote_path}"
+
+        self.log(f"Uploading '{local_path}' to '{remote_path}' via scp...")
+        cmd = []
+        if sshpass and self.password:
+            cmd.extend([sshpass, "-p", self.password])
+
+        cmd.extend([
+            "scp",
+            "-F", "/dev/null",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null"
+        ])
+        if self.key_filename:
+            cmd.extend(["-i", self.key_filename])
+        cmd.extend(self._get_legacy_options())
+        cmd.extend([
+            "-P", str(self.port),
+            local_path,
+            target
+        ])
+
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if res.returncode != 0:
+            self.log(f"SCP Upload error: {res.stderr}")
+            raise Exception(f"Native SCP Upload Error: {res.stderr}")
+        self.log("Upload completed successfully.")
+
+    def download_file(self, remote_path: str, local_path: str, progress_callback: Optional[Callable[[int, int], None]] = None):
+        """Downloads file using native SCP."""
+        sshpass = shutil.which("sshpass")
+        source = f"{self.username}@{self.hostname}:{remote_path}" if self.username else f"{self.hostname}:{remote_path}"
+
+        self.log(f"Downloading '{remote_path}' to '{local_path}' via scp...")
+        cmd = []
+        if sshpass and self.password:
+            cmd.extend([sshpass, "-p", self.password])
+
+        cmd.extend([
+            "scp",
+            "-F", "/dev/null",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null"
+        ])
+        if self.key_filename:
+            cmd.extend(["-i", self.key_filename])
+        cmd.extend(self._get_legacy_options())
+        cmd.extend([
+            "-P", str(self.port),
+            source,
+            local_path
+        ])
+
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if res.returncode != 0:
+            self.log(f"SCP Download error: {res.stderr}")
+            raise Exception(f"Native SCP Download Error: {res.stderr}")
+        self.log("Download completed successfully.")
+
+    def upload_directory(self, local_path: str, remote_path: str, progress_callback: Optional[Callable[[int, int], None]] = None):
+        """Uploads a directory recursively using native SCP."""
+        sshpass = shutil.which("sshpass")
+        target = f"{self.username}@{self.hostname}:{remote_path}" if self.username else f"{self.hostname}:{remote_path}"
+
+        self.log(f"Uploading directory '{local_path}' to '{remote_path}' via scp -r...")
+        cmd = []
+        if sshpass and self.password:
+            cmd.extend([sshpass, "-p", self.password])
+
+        cmd.extend([
+            "scp", "-r",
+            "-F", "/dev/null",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null"
+        ])
+        if self.key_filename:
+            cmd.extend(["-i", self.key_filename])
+        cmd.extend(self._get_legacy_options())
+        cmd.extend([
+            "-P", str(self.port),
+            local_path,
+            target
+        ])
+
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if res.returncode != 0:
+            self.log(f"SCP Directory Upload error: {res.stderr}")
+            raise Exception(f"Native SCP Directory Upload Error: {res.stderr}")
+        self.log("Directory upload completed successfully.")
+
+    def download_directory(self, remote_path: str, local_path: str, progress_callback: Optional[Callable[[int, int], None]] = None):
+        """Downloads a directory recursively using native SCP."""
+        sshpass = shutil.which("sshpass")
+        source = f"{self.username}@{self.hostname}:{remote_path}" if self.username else f"{self.hostname}:{remote_path}"
+
+        self.log(f"Downloading directory '{remote_path}' to '{local_path}' via scp -r...")
+        cmd = []
+        if sshpass and self.password:
+            cmd.extend([sshpass, "-p", self.password])
+
+        cmd.extend([
+            "scp", "-r",
+            "-F", "/dev/null",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null"
+        ])
+        if self.key_filename:
+            cmd.extend(["-i", self.key_filename])
+        cmd.extend(self._get_legacy_options())
+        cmd.extend([
+            "-P", str(self.port),
+            source,
+            local_path
+        ])
+
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if res.returncode != 0:
+            self.log(f"SCP Directory Download error: {res.stderr}")
+            raise Exception(f"Native SCP Directory Download Error: {res.stderr}")
+        self.log("Directory download completed successfully.")
+
+    def disconnect(self):
+        self.is_connected = False
+
+
+class SFTPEngine:
+    """
+    Dedicated Universal SFTP Client Engine using Paramiko with Active Transport Reuse and Native OpenSSH SFTP Fallback.
+    Provides diagnostic log output callback.
+    """
+
+    def __init__(self, hostname: str, port: int = 22, username: str = "", password: str = "",
+                 key_filename: Optional[str] = None, ssh_engine: Optional[Any] = None,
+                 log_callback: Optional[Callable[[str], None]] = None):
+        self.hostname = hostname
+        self.port = port
+        self.username = username
+        self.password = password
+        self.key_filename = key_filename
+        self.ssh_engine = ssh_engine
+        self.log_callback = log_callback
+
+        self.transport: Optional[paramiko.Transport] = None
+        self.sftp: Optional[paramiko.SFTPClient] = None
+        self.shell_engine: Optional[ShellFileEngine] = None
+        self.native_sftp: Optional[NativePTYSFTPEngine] = None
+        self.is_connected = False
+
+    def log(self, msg: str):
+        if self.log_callback:
+            ts = datetime.datetime.now().strftime("%H:%M:%S")
+            self.log_callback(f"[{ts}] [SFTP Engine] {msg}\n")
+
+    def _get_native_sftp(self) -> NativePTYSFTPEngine:
+        if not self.native_sftp:
+            self.native_sftp = NativePTYSFTPEngine(
+                hostname=self.hostname, port=self.port, username=self.username, password=self.password,
+                key_filename=self.key_filename, log_callback=self.log_callback
+            )
+        return self.native_sftp
+
+    def connect(self) -> bool:
+        """Connects to remote server and initializes SFTP subsystem, reusing active Transport if available."""
+        self.log(f"Initiating SFTP Connection to {self.username}@{self.hostname}:{self.port}...")
+
+        # 1. Try reusing active Paramiko transport from SSHEngine
+        if self.ssh_engine and getattr(self.ssh_engine, "transport", None):
+            try:
+                active_trans = self.ssh_engine.transport
+                if active_trans and active_trans.is_active():
+                    self.log("Reusing active Paramiko SSH Transport from active terminal session...")
+                    self.sftp = paramiko.SFTPClient.from_transport(active_trans)
+                    self.is_connected = True
+                    self.log("SFTP subsystem opened successfully over active transport.")
+                    return True
+            except Exception as e:
+                self.log(f"Transport reuse SFTP notice: {str(e)}")
+                self.log("SFTP subsystem not available on active transport. Attempting Shell fallback...")
+                try:
+                    self.shell_engine = ShellFileEngine(active_trans, log_callback=self.log_callback)
+                    self.is_connected = True
+                    return True
+                except Exception as shell_err:
+                    self.log(f"Shell engine reuse notice: {str(shell_err)}")
+
+        # 2. Try creating fresh Paramiko Transport
+        try:
+            self.log("Establishing dedicated Paramiko Transport socket...")
+            sock = socket.create_connection((self.hostname, self.port), timeout=10)
+            self.transport = paramiko.Transport(sock)
+            configure_security_options(self.transport)
+
+            if self.key_filename and os.path.exists(self.key_filename):
+                try:
+                    pkey = paramiko.RSAKey.from_private_key_file(self.key_filename)
+                    self.transport.connect(username=self.username, pkey=pkey)
+                except Exception:
+                    self.transport.connect(username=self.username, password=self.password)
+            else:
+                self.transport.connect(username=self.username, password=self.password)
+
+            self.sftp = paramiko.SFTPClient.from_transport(self.transport)
+            self.is_connected = True
+            self.log("Dedicated Paramiko SFTP session established successfully.")
+            return True
+        except Exception as e:
+            self.log(f"Paramiko SFTP Connection Error: {str(e)}")
+            self.log("Switching seamlessly to Native OpenSSH SFTP / SCP Fallback...")
+            self.disconnect()
+            
+            # Since paramiko failed completely, we fallback to Native SFTP.
+            self.native_sftp = NativePTYSFTPEngine(
+                hostname=self.hostname, port=self.port, username=self.username, password=self.password,
+                key_filename=self.key_filename, log_callback=self.log_callback
+            )
+            connected = self.native_sftp.connect()
+            self.is_connected = connected
+            return connected
+
+    def get_current_dir(self) -> str:
+        if self.sftp:
+            try:
+                return self.sftp.normalize(".")
+            except Exception:
+                return "/"
+        elif self.shell_engine:
+            return self.shell_engine.get_current_dir()
+        elif self.native_sftp:
+            return self.native_sftp.get_current_dir()
+        return "/"
+
+    def list_remote_dir(self, remote_path: str = ".") -> List[Dict[str, Any]]:
+        """Lists files and folders in specified remote directory."""
+        self.log(f"Requesting remote directory listing for: '{remote_path}'")
+        if self.sftp:
+            try:
+                attr_list = self.sftp.listdir_attr(remote_path)
+                items = []
+                for attr in attr_list:
+                    is_dir = stat.S_ISDIR(attr.st_mode)
+                    items.append({
+                        "name": attr.filename,
+                        "size": attr.st_size if not is_dir else 0,
+                        "is_dir": is_dir,
+                        "permissions": stat.filemode(attr.st_mode),
+                        "mtime": attr.st_mtime
+                    })
+                items.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
+                self.log(f"Paramiko SFTP listing successful: {len(items)} items found.")
+                return items
+            except Exception as e:
+                self.log(f"Paramiko listdir_attr error: {str(e)}")
+                raise e
+        elif self.shell_engine:
+            return self.shell_engine.list_remote_dir(remote_path)
+        elif self.native_sftp:
+            return self.native_sftp.list_remote_dir(remote_path)
+        else:
+            self.log("SFTP Error: Not connected.")
+            raise Exception("SFTP not connected")
+
+    def upload_file(self, local_path: str, remote_path: str, progress_callback: Optional[Callable[[int, int], None]] = None):
+        if self.sftp:
+            self.log(f"Uploading '{local_path}' to '{remote_path}' via Paramiko SFTP...")
+            self.sftp.put(local_path, remote_path, callback=progress_callback)
+            self.log("Paramiko SFTP upload complete.")
+        elif self.shell_engine:
+            self.log("Shell engine active. Falling back to native scp for upload...")
+            self._get_native_sftp().upload_file(local_path, remote_path, progress_callback)
+        elif self.native_sftp:
+            self.native_sftp.upload_file(local_path, remote_path, progress_callback)
+        else:
+            raise Exception("SFTP not connected")
+
+    def download_file(self, remote_path: str, local_path: str, progress_callback: Optional[Callable[[int, int], None]] = None):
+        if self.sftp:
+            self.log(f"Downloading '{remote_path}' to '{local_path}' via Paramiko SFTP...")
+            self.sftp.get(remote_path, local_path, callback=progress_callback)
+            self.log("Paramiko SFTP download complete.")
+        elif self.shell_engine:
+            self.log("Shell engine active. Falling back to native scp for download...")
+            self._get_native_sftp().download_file(remote_path, local_path, progress_callback)
+        elif self.native_sftp:
+            self.native_sftp.download_file(remote_path, local_path, progress_callback)
+        else:
+            raise Exception("SFTP not connected")
+
+    def upload_directory(self, local_path: str, remote_path: str, progress_callback: Optional[Callable[[int, int], None]] = None):
+        if self.sftp:
+            self.log(f"Uploading directory '{local_path}' to '{remote_path}' via Paramiko SFTP...")
+            self._paramiko_upload_dir(local_path, remote_path)
+            self.log("Paramiko SFTP directory upload complete.")
+        elif self.shell_engine:
+            self.log("Shell engine active. Falling back to native scp for directory upload...")
+            self._get_native_sftp().upload_directory(local_path, remote_path, progress_callback)
+        elif self.native_sftp:
+            self.native_sftp.upload_directory(local_path, remote_path, progress_callback)
+        else:
+            raise Exception("SFTP not connected")
+
+    def _paramiko_upload_dir(self, local_dir, remote_dir):
+        try:
+            self.sftp.mkdir(remote_dir)
+        except IOError:
+            pass # Ignore if it exists
+            
+        for item in os.listdir(local_dir):
+            local_path = os.path.join(local_dir, item)
+            item_remote_path = f"{remote_dir}/{item}"
+            if os.path.isfile(local_path):
+                self.sftp.put(local_path, item_remote_path)
+            elif os.path.isdir(local_path):
+                self._paramiko_upload_dir(local_path, item_remote_path)
+
+    def download_directory(self, remote_path: str, local_path: str, progress_callback: Optional[Callable[[int, int], None]] = None):
+        if self.sftp:
+            self.log(f"Downloading directory '{remote_path}' to '{local_path}' via Paramiko SFTP...")
+            self._paramiko_download_dir(remote_path, local_path)
+            self.log("Paramiko SFTP directory download complete.")
+        elif self.shell_engine:
+            self.log("Shell engine active. Falling back to native scp for directory download...")
+            self._get_native_sftp().download_directory(remote_path, local_path, progress_callback)
+        elif self.native_sftp:
+            self.native_sftp.download_directory(remote_path, local_path, progress_callback)
+        else:
+            raise Exception("SFTP not connected")
+
+    def _paramiko_download_dir(self, remote_dir, local_dir):
+        os.makedirs(local_dir, exist_ok=True)
+        for attr in self.sftp.listdir_attr(remote_dir):
+            item_remote_path = f"{remote_dir}/{attr.filename}"
+            local_path = os.path.join(local_dir, attr.filename)
+            if stat.S_ISDIR(attr.st_mode):
+                self._paramiko_download_dir(item_remote_path, local_path)
+            else:
+                self.sftp.get(item_remote_path, local_path)
+
+    def mkdir(self, remote_path: str):
+        if self.sftp:
+            self.sftp.mkdir(remote_path)
+
+    def remove_file(self, remote_path: str):
+        if self.sftp:
+            self.sftp.remove(remote_path)
+
+    def rmdir(self, remote_path: str):
+        if self.sftp:
+            self.sftp.rmdir(remote_path)
+
+    def disconnect(self):
+        if self.sftp:
+            try:
+                self.sftp.close()
+            except Exception:
+                pass
+            self.sftp = None
+
+        if self.shell_engine:
+            self.shell_engine.disconnect()
+            self.shell_engine = None
+
+        if self.transport:
+            try:
+                self.transport.close()
+            except Exception:
+                pass
+            self.transport = None
+
+        if self.native_sftp:
+            self.native_sftp.disconnect()
+            self.native_sftp = None
+
+        self.is_connected = False
