@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QIcon
 from PySide6.QtCore import Qt, Signal
-from pyremoteng.config.models import ConnectionNode
+from pyremotempc.config.models import ConnectionNode
 
 
 class ConnectionTreeWidget(QTreeWidget):

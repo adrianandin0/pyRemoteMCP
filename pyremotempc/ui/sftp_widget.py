@@ -5,9 +5,9 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QIcon, QTextCursor
-from pyremoteng.engine.sftp_engine import SFTPEngine
-from pyremoteng.config.settings import SettingsManager
-from pyremoteng.config.i18n import tr
+from pyremotempc.engine.sftp_engine import SFTPEngine
+from pyremotempc.config.settings import SettingsManager
+from pyremotempc.config.i18n import tr
 
 
 class SFTPWidget(QWidget):

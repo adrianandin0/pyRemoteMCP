@@ -1,6 +1,6 @@
 import hashlib
 import os
-from pyremoteng.config.settings import SettingsManager
+from pyremotempc.config.settings import SettingsManager
 
 
 def hash_master_key(password: str, salt: bytes, iterations: int = 200000) -> str:

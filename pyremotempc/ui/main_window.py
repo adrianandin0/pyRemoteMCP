@@ -7,27 +7,27 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtCore import Qt, QSize
 
-from pyremoteng.config.models import ConnectionNode
-from pyremoteng.config.settings import SettingsManager
-from pyremoteng.config.i18n import tr
-from pyremoteng.config.xml_parser import mRemoteNGXmlParser
-from pyremoteng.crypto.master_key_manager import MasterKeyManager
-from pyremoteng.ui.tree_widget import ConnectionTreeWidget
-from pyremoteng.ui.property_grid import PropertyGridWidget
-from pyremoteng.ui.tab_widget import SessionTabWidget
-from pyremoteng.ui.preferences_dialog import PreferencesDialog
-from pyremoteng.ui.dialogs.master_password_dialog import MasterPasswordDialog
+from pyremotempc.config.models import ConnectionNode
+from pyremotempc.config.settings import SettingsManager
+from pyremotempc.config.i18n import tr
+from pyremotempc.config.xml_parser import mRemoteNGXmlParser
+from pyremotempc.crypto.master_key_manager import MasterKeyManager
+from pyremotempc.ui.tree_widget import ConnectionTreeWidget
+from pyremotempc.ui.property_grid import PropertyGridWidget
+from pyremotempc.ui.tab_widget import SessionTabWidget
+from pyremotempc.ui.preferences_dialog import PreferencesDialog
+from pyremotempc.ui.dialogs.master_password_dialog import MasterPasswordDialog
 
 
 def get_user_config_dir() -> str:
-    """Returns ~/.config/pyremoteng directory, creating it if needed."""
-    config_dir = os.path.expanduser("~/.config/pyremoteng")
+    """Returns ~/.config/pyremotempc directory, creating it if needed."""
+    config_dir = os.path.expanduser("~/.config/pyremotempc")
     os.makedirs(config_dir, exist_ok=True)
     return config_dir
 
 
 def get_default_config_path() -> str:
-    """Returns ~/.config/pyremoteng/confCons.xml."""
+    """Returns ~/.config/pyremotempc/confCons.xml."""
     return os.path.join(get_user_config_dir(), "confCons.xml")
 
 
@@ -93,7 +93,7 @@ class MainWindow(QMainWindow):
         self._auto_load_connections()
 
     def _auto_load_connections(self):
-        """Loads connections from user config file (~/.config/pyremoteng/confCons.xml) if present."""
+        """Loads connections from user config file (~/.config/pyremotempc/confCons.xml) if present."""
         default_path = get_default_config_path()
         if os.path.exists(default_path):
             try:
@@ -126,7 +126,7 @@ class MainWindow(QMainWindow):
         self.tree_widget.load_tree(root)
 
     def _auto_save_connections(self):
-        """Auto-saves current connection tree to ~/.config/pyremoteng/confCons.xml."""
+        """Auto-saves current connection tree to ~/.config/pyremotempc/confCons.xml."""
         default_path = get_default_config_path()
         try:
             parser = mRemoteNGXmlParser(master_password=self.master_password)

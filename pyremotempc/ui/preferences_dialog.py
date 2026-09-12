@@ -5,9 +5,9 @@ from PySide6.QtWidgets import (
     QMessageBox, QFormLayout, QGroupBox
 )
 from PySide6.QtCore import Qt
-from pyremoteng.config.settings import SettingsManager
-from pyremoteng.config.i18n import tr
-from pyremoteng.crypto.master_key_manager import MasterKeyManager
+from pyremotempc.config.settings import SettingsManager
+from pyremotempc.config.i18n import tr
+from pyremotempc.crypto.master_key_manager import MasterKeyManager
 
 
 class PreferencesDialog(QDialog):
@@ -102,7 +102,7 @@ class PreferencesDialog(QDialog):
 
         dir_layout = QHBoxLayout()
         self.edit_log_dir = QLineEdit(group_log)
-        self.edit_log_dir.setText(self.settings.get("log_directory", "~/.config/pyremoteng/logs"))
+        self.edit_log_dir.setText(self.settings.get("log_directory", "~/.config/pyremotempc/logs"))
         dir_layout.addWidget(self.edit_log_dir)
 
         btn_browse = QPushButton("Examinar / Browse...", group_log)

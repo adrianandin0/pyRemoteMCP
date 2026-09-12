@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=pyRemoteNG
 Comment=Multi-Protocol Remote Connections Manager for Linux
-Exec=pyremoteng
+Exec=pyremotempc
 Icon=utilities-terminal
 Terminal=false
 Type=Application

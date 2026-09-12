@@ -6,8 +6,8 @@ from typing import Optional
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QPlainTextEdit, QFileDialog, QMessageBox
 from PySide6.QtGui import QFont, QTextCursor, QKeyEvent, QInputMethodEvent
 from PySide6.QtCore import Qt, Signal, QObject, QEvent
-from pyremoteng.engine.ssh_engine import SSHEngine
-from pyremoteng.config.settings import SettingsManager
+from pyremotempc.engine.ssh_engine import SSHEngine
+from pyremotempc.config.settings import SettingsManager
 
 def term_debug(msg: str):
     try:

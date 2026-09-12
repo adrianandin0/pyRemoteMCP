@@ -1,6 +1,6 @@
-# PyRemoteNG
+# PyRemoteMPC
 
-A modern, fast, and native Linux multi-protocol remote desktop manager designed for Wayland/X11. PyRemoteNG aims to be a spiritual successor and compatible client for mRemoteNG XML configurations, fully built in Python and PySide6.
+A modern, fast, and native Linux multi-protocol remote desktop manager designed for Wayland/X11. PyRemoteMPC aims to be a spiritual successor and compatible client for mRemoteNG XML configurations, fully built in Python and PySide6.
 
 ## Features
 - **Multi-Protocol Support:** RDP, SSH, SFTP, and VNC support (using native engines like FreeRDP, OpenSSH, and Pyte).
@@ -16,4 +16,4 @@ A modern, fast, and native Linux multi-protocol remote desktop manager designed 
 ## Setup
 1. Clone the repository
 2. Install dependencies: `pip install -r requirements.txt`
-3. Run the application: `python3 -m pyremoteng.app`
+3. Run the application: `python3 -m pyremotempc.app`

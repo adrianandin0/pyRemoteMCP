@@ -5,7 +5,7 @@ import os
 # Without this, xfreerdp cannot embed into the PySide6 window natively on Wayland.
 os.environ["QT_QPA_PLATFORM"] = "xcb"
 from PySide6.QtWidgets import QApplication
-from pyremoteng.ui.main_window import MainWindow
+from pyremotempc.ui.main_window import MainWindow
 
 
 def main():

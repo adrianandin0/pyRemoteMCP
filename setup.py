@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="pyremoteng",
+    name="pyremotempc",
     version="1.0.0",
     description="Native Python mRemoteNG clone for Linux (KDE/GNOME/XFCE) with legacy SSH and RDP engines",
     author="Antigravity Team",
@@ -14,7 +14,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "pyremoteng=pyremoteng.app:main",
+            "pyremotempc=pyremotempc.app:main",
         ],
     },
 )

@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
 import os
 from pathlib import Path
 from PySide6.QtCore import Signal
-from pyremoteng.config.models import ConnectionNode
+from pyremotempc.config.models import ConnectionNode
 
 
 class PropertyGridWidget(QWidget):

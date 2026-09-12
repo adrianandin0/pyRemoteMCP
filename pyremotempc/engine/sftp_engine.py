@@ -6,8 +6,8 @@ import subprocess
 import datetime
 import paramiko
 from typing import List, Dict, Any, Optional, Callable
-from pyremoteng.engine.ssh_engine import configure_security_options
-from pyremoteng.engine.shell_file_engine import ShellFileEngine
+from pyremotempc.engine.ssh_engine import configure_security_options
+from pyremotempc.engine.shell_file_engine import ShellFileEngine
 
 
 class NativePTYSFTPEngine:

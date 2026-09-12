@@ -12,7 +12,7 @@ import paramiko
 from paramiko.kex_group14 import KexGroup14SHA256
 from paramiko.kex_gex import KexGexSHA256
 from paramiko.rsakey import RSAKey
-from pyremoteng.engine.ssh1_engine import PurePythonSSH1Engine
+from pyremotempc.engine.ssh1_engine import PurePythonSSH1Engine
 
 
 # Custom SHA1 Key Exchange Classes for Legacy SSH Peer Compatibility

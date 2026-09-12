@@ -4,13 +4,13 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QIcon, QTextCursor
 from PySide6.QtCore import Qt, QObject, Signal, QTimer
 from typing import Optional
-from pyremoteng.config.models import ConnectionNode
-from pyremoteng.config.settings import SettingsManager
-from pyremoteng.config.i18n import tr
-from pyremoteng.ui.terminal_widget import TerminalWidget
-from pyremoteng.ui.sftp_widget import SFTPWidget
-from pyremoteng.engine.rdp_engine import RDPEngine
-from pyremoteng.engine.vnc_engine import VNCEngine
+from pyremotempc.config.models import ConnectionNode
+from pyremotempc.config.settings import SettingsManager
+from pyremotempc.config.i18n import tr
+from pyremotempc.ui.terminal_widget import TerminalWidget
+from pyremotempc.ui.sftp_widget import SFTPWidget
+from pyremotempc.engine.rdp_engine import RDPEngine
+from pyremotempc.engine.vnc_engine import VNCEngine
 
 
 import ctypes
