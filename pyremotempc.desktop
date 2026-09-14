@@ -1,8 +1,8 @@
 [Desktop Entry]
-Name=pyRemoteNG
+Name=pyRemoteMPC
 Comment=Multi-Protocol Remote Connections Manager for Linux
 Exec=pyremotempc
-Icon=utilities-terminal
+Icon=pyremotempc
 Terminal=false
 Type=Application
 Categories=Network;RemoteAccess;Utility;

@@ -5,14 +5,59 @@ import os
 # Without this, xfreerdp cannot embed into the PySide6 window natively on Wayland.
 os.environ["QT_QPA_PLATFORM"] = "xcb"
 from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QFont
 from pyremotempc.ui.main_window import MainWindow
+from pyremotempc.ui.icon_manager import get_icon
 
 
 def main():
-    """Main entry point for pyRemoteNG application."""
+    """Main entry point for pyRemoteMPC application."""
     app = QApplication(sys.argv)
-    app.setApplicationName("pyRemoteNG")
-    app.setOrganizationName("pyRemoteNG")
+    app.setApplicationName("pyRemoteMPC")
+    app.setOrganizationName("pyRemoteMPC")
+    app.setWindowIcon(get_icon("pyremotempc"))
+
+    # Set base application font to 11px normal weight
+    font = app.font()
+    font.setPixelSize(11)
+    font.setBold(False)
+    font.setWeight(QFont.Weight.Normal)
+    app.setFont(font)
+
+    # Set strict global stylesheet enforcing 11px non-bold for all widgets, 12px non-bold for titles, and clean line splitters
+    app.setStyleSheet("""
+        * {
+            font-size: 11px;
+            font-weight: normal;
+        }
+        QWidget {
+            font-size: 11px;
+            font-weight: normal;
+        }
+        QGroupBox, QDockWidget::title {
+            font-size: 12px;
+            font-weight: normal;
+        }
+        QMainWindow::separator {
+            background-color: #252526;
+            width: 1px;
+            height: 1px;
+            image: none;
+        }
+        QSplitter::handle {
+            background-color: #1e1e1e;
+            image: none;
+        }
+        QSplitter::handle:vertical {
+            height: 2px;
+        }
+        QSplitter::handle:horizontal {
+            width: 2px;
+        }
+        QSplitter::handle:hover, QMainWindow::separator:hover {
+            background-color: #007acc;
+        }
+    """)
 
     window = MainWindow()
     window.show()

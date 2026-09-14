@@ -26,7 +26,8 @@ class RDPEngine:
         return "", "none"
 
     def __init__(self, hostname: str, port: int = 3389, username: str = "", password: str = "",
-                 domain: str = "", rdp_security: str = "Auto", redirect_drives: bool = False,
+                 domain: str = "", rdp_security: str = "Auto", rdp_cert_ignore: bool = True,
+                 rdp_cert_path: str = "", redirect_drives: bool = False,
                  redirect_clipboard: bool = True, redirect_sound: bool = True):
         self.hostname = hostname
         self.port = port
@@ -34,6 +35,8 @@ class RDPEngine:
         self.password = password
         self.domain = domain
         self.rdp_security = rdp_security
+        self.rdp_cert_ignore = rdp_cert_ignore
+        self.rdp_cert_path = rdp_cert_path
         self.redirect_drives = redirect_drives
         self.redirect_clipboard = redirect_clipboard
         self.redirect_sound = redirect_sound
@@ -77,10 +80,15 @@ class RDPEngine:
             if self.redirect_drives:
                 cmd.append("/drive:home,$HOME")
 
-            cmd.append("/cert:ignore")
+            if self.rdp_cert_path and os.path.exists(self.rdp_cert_path):
+                cmd.append(f"/cert:file:{self.rdp_cert_path}")
+            elif self.rdp_cert_ignore:
+                cmd.append("/cert:ignore")
+
             # Lower TLS security level to allow connecting to older servers on modern OpenSSL
             cmd.append("/tls:seclevel:0")
             return cmd
+
 
         elif client_type == "rdesktop":
             cmd = [exe_path, f"{self.hostname}:{self.port}", "-g", f"{width}x{height}"]
@@ -163,3 +171,8 @@ class RDPEngine:
                 except Exception:
                     pass
         self.process = None
+
+    def stop(self):
+        """Alias for stop_session for engine interface consistency."""
+        self.stop_session()
+

@@ -152,6 +152,15 @@ class NativePTYSSHEngine:
 
         try:
             self.master_fd, self.slave_fd = pty.openpty()
+            import tty, fcntl, termios, struct
+            tty.setraw(self.slave_fd)
+
+            try:
+                winsz = struct.pack("HHHH", height, width, 0, 0)
+                fcntl.ioctl(self.master_fd, termios.TIOCSWINSZ, winsz)
+            except Exception:
+                pass
+
             env = os.environ.copy()
             env["TERM"] = term_type
 
@@ -179,6 +188,15 @@ class NativePTYSSHEngine:
         if self.master_fd is not None and self.is_connected:
             try:
                 os.write(self.master_fd, data.encode("utf-8"))
+            except Exception:
+                pass
+
+    def resize_pty(self, width: int, height: int):
+        if self.master_fd is not None and self.is_connected:
+            try:
+                import fcntl, termios, struct
+                winsz = struct.pack("HHHH", height, width, 0, 0)
+                fcntl.ioctl(self.master_fd, termios.TIOCSWINSZ, winsz)
             except Exception:
                 pass
 
@@ -268,7 +286,7 @@ class SSHEngine:
         # 2. If Server speaks SSH1 (SSH-1.x), use Pure Python SSH1 Engine
         if detected_version == "SSH1":
             if self.output_callback:
-                self.output_callback(f"Connecting to {self.hostname}:{self.port} (SSH 1.5 Protocol)...\nServer Banner: {banner.strip()}\n")
+                self.output_callback(f"Connecting to {self.hostname}:{self.port} (SSH 1.5 Protocol)...\r\nServer Banner: {banner.strip()}\r\n")
             self.ssh1_engine = PurePythonSSH1Engine(
                 hostname=self.hostname, port=self.port, username=self.username, password=self.password
             )
@@ -276,7 +294,7 @@ class SSHEngine:
 
         # 3. Server speaks SSH2 (SSH-2.0, e.g. OpenSSH_4.3p2 or OpenSSH_8.7) -> Use Direct Paramiko Transport
         if self.output_callback:
-            self.output_callback(f"Connecting to {self.hostname}:{self.port}...\nServer Banner: {banner.strip()}\n")
+            self.output_callback(f"Connecting to {self.hostname}:{self.port}...\r\nServer Banner: {banner.strip()}\r\n")
 
         try:
             sock = socket.create_connection((self.hostname, self.port), timeout=10)
@@ -325,9 +343,11 @@ class SSHEngine:
                 pass
 
     def resize_pty(self, width: int, height: int):
-        if self.channel and self.is_connected:
+        if self.native_engine:
+            self.native_engine.resize_pty(width, height)
+        elif self.channel and self.is_connected:
             try:
-                self.channel.resize_pkey(width=width, height=height)
+                self.channel.resize_pty(width=width, height=height)
             except Exception:
                 pass
 

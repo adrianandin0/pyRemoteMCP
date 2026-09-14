@@ -1,11 +1,11 @@
 import os
 from PySide6.QtWidgets import (
     QMainWindow, QDockWidget, QFileDialog, QMessageBox, QToolBar,
-    QStatusBar, QApplication, QSplitter, QWidget, QVBoxLayout,
+    QStatusBar, QApplication, QSplitter, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLineEdit, QComboBox, QSpinBox, QLabel, QInputDialog
 )
 from PySide6.QtGui import QAction, QIcon
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, QPoint, QTimer, QByteArray
 
 from pyremotempc.config.models import ConnectionNode
 from pyremotempc.config.settings import SettingsManager
@@ -17,6 +17,7 @@ from pyremotempc.ui.property_grid import PropertyGridWidget
 from pyremotempc.ui.tab_widget import SessionTabWidget
 from pyremotempc.ui.preferences_dialog import PreferencesDialog
 from pyremotempc.ui.dialogs.master_password_dialog import MasterPasswordDialog
+from pyremotempc.ui.icon_manager import get_icon
 
 
 def get_user_config_dir() -> str:
@@ -33,7 +34,7 @@ def get_default_config_path() -> str:
 
 class MainWindow(QMainWindow):
     """
-    Main Application Window for pyRemoteNG.
+    Main Application Window for pyRemoteMPC.
     Compatible with KDE Plasma, GNOME, XFCE and all Linux desktop environments.
     Supports Spanish and English interface languages.
     """
@@ -44,38 +45,148 @@ class MainWindow(QMainWindow):
         self.settings = SettingsManager()
         self.master_key_mgr = MasterKeyManager(self.settings)
 
+        self.setObjectName("MainWindow")
         self.setWindowTitle(tr("app_title", self.settings.language))
-        self.resize(1280, 850)
+        self.setWindowIcon(get_icon("pyremotempc"))
+        self.resize(1318, 768)
+        self._restore_window_settings()
 
         self.master_password = "mR3m"
         self.current_file_path = get_default_config_path()
 
-        # Core central tabs with settings manager
-        self.session_tabs = SessionTabWidget(settings_manager=self.settings, parent=self)
-        self.setCentralWidget(self.session_tabs)
+        # Core central tabs container with single ultra-narrow sidebar toggle button on outer boundary
+        central_container = QWidget(self)
+        central_layout = QHBoxLayout(central_container)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+
+        # Single ultra-narrow toggle button (10px wide) placed on outer boundary
+        self.btn_toggle_sidebar = QPushButton("◀", central_container)
+        self.btn_toggle_sidebar.setFixedSize(10, 48)
+        self.btn_toggle_sidebar.setToolTip("Toggle Connections Sidebar")
+        self.btn_toggle_sidebar.setStyleSheet(
+            "QPushButton { background-color: #252526; color: #aaaaaa; border: 1px solid #3c3c3c; "
+            "border-left: none; border-top-right-radius: 3px; border-bottom-right-radius: 3px; "
+            "font-size: 8px; font-weight: bold; padding: 0px; } "
+            "QPushButton:hover { background-color: #007acc; color: #ffffff; border-color: #007acc; }"
+        )
+        self.btn_toggle_sidebar.clicked.connect(self._toggle_sidebar)
+
+        # Wrapper to align toggle button vertically near middle of Connections tree area
+        toggle_wrapper = QWidget(central_container)
+        self.toggle_layout = QVBoxLayout(toggle_wrapper)
+        self.toggle_layout.setContentsMargins(0, 0, 0, 0)
+        self.toggle_layout.setSpacing(0)
+        self.toggle_layout.addWidget(self.btn_toggle_sidebar, 0, Qt.AlignmentFlag.AlignTop)
+
+        central_layout.addWidget(toggle_wrapper, 0)
+
+        self.session_tabs = SessionTabWidget(settings_manager=self.settings, parent=central_container)
+        central_layout.addWidget(self.session_tabs, 1)
+        self.setCentralWidget(central_container)
 
         # Left Dock: Combined Tree (67%) and Properties (33%) stacked vertically
         self.sidebar_dock = QDockWidget(tr("connections_and_properties", self.settings.language), self)
+        self.sidebar_dock.setObjectName("SidebarDock")
         sidebar_container = QWidget(self.sidebar_dock)
         sidebar_layout = QVBoxLayout(sidebar_container)
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
 
         self.sidebar_splitter = QSplitter(Qt.Orientation.Vertical, sidebar_container)
 
-        self.tree_widget = ConnectionTreeWidget(self.sidebar_splitter)
-        self.prop_grid = PropertyGridWidget(self.sidebar_splitter)
+        # Top Connections Container (Title + Real-time Search Box)
+        # Top Connections Container (connections.png Icon + Real-time Search Box)
+        conn_container = QWidget(self.sidebar_splitter)
+        conn_vbox = QVBoxLayout(conn_container)
+        conn_vbox.setContentsMargins(0, 0, 0, 0)
+        conn_vbox.setSpacing(0)
 
-        self.sidebar_splitter.addWidget(self.tree_widget)
-        self.sidebar_splitter.addWidget(self.prop_grid)
+        conn_header_widget = QWidget(conn_container)
+        conn_header_widget.setFixedHeight(32)
+        conn_header_widget.setStyleSheet("border: none;")
+        conn_header_layout = QHBoxLayout(conn_header_widget)
+        conn_header_layout.setContentsMargins(4, 0, 1, 0)
+        conn_header_layout.setSpacing(4)
 
-        # Set 67% height for tree view and 33% height for properties inspector
-        self.sidebar_splitter.setSizes([670, 330])
+        lbl_conn_icon = QLabel(conn_header_widget)
+        lbl_conn_icon.setPixmap(get_icon("connections").pixmap(18, 18))
+        lbl_conn_icon.setToolTip(tr("connections", self.settings.language))
+        conn_header_layout.addWidget(lbl_conn_icon, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        conn_header_layout.addStretch(1)
+
+        self.edit_tree_search = QLineEdit(conn_header_widget)
+        self.edit_tree_search.setPlaceholderText("Search...")
+        self.edit_tree_search.setClearButtonEnabled(True)
+        self.edit_tree_search.setFixedWidth(110)
+        self.edit_tree_search.addAction(get_icon("search"), QLineEdit.ActionPosition.LeadingPosition)
+        self.edit_tree_search.setStyleSheet(
+            "QLineEdit { background-color: #1e1e1e; color: #d4d4d4; border: 1px solid #3c3c3c; "
+            "border-radius: 3px; padding: 2px 4px; font-size: 11px; } "
+            "QLineEdit:focus { border-color: #007acc; }"
+        )
+
+        conn_header_layout.addWidget(self.edit_tree_search, 0, Qt.AlignmentFlag.AlignVCenter)
+        conn_vbox.addWidget(conn_header_widget)
+
+        self.tree_widget = ConnectionTreeWidget(conn_container)
+        self.tree_widget.setHeaderHidden(True)
+        self.edit_tree_search.textChanged.connect(self.tree_widget.filter_nodes)
+        conn_vbox.addWidget(self.tree_widget)
+
+        # Bottom Properties Container (settings.png Icon Header + Property Grid)
+        prop_container = QWidget(self.sidebar_splitter)
+        prop_vbox = QVBoxLayout(prop_container)
+        prop_vbox.setContentsMargins(0, 0, 0, 0)
+        prop_vbox.setSpacing(0)
+
+        prop_header_widget = QWidget(prop_container)
+        prop_header_widget.setFixedHeight(32)
+        prop_header_widget.setStyleSheet("border: none;")
+        prop_header_layout = QHBoxLayout(prop_header_widget)
+        prop_header_layout.setContentsMargins(6, 0, 6, 0)
+        prop_header_layout.setSpacing(4)
+
+        lbl_prop_icon = QLabel(prop_header_widget)
+        lbl_prop_icon.setPixmap(get_icon("settings").pixmap(18, 18))
+        lbl_prop_icon.setToolTip(tr("properties", self.settings.language))
+        prop_header_layout.addWidget(lbl_prop_icon, 0, Qt.AlignmentFlag.AlignVCenter)
+        prop_header_layout.addStretch()
+
+        self.btn_toggle_prop = QPushButton("▼", prop_header_widget)
+        self.btn_toggle_prop.setFixedSize(20, 20)
+        self.btn_toggle_prop.setToolTip(tr("properties", self.settings.language))
+        self.btn_toggle_prop.setStyleSheet(
+            "QPushButton { background-color: transparent; color: #aaaaaa; border: none; font-size: 10px; font-weight: bold; } "
+            "QPushButton:hover { background-color: #3c3c3c; color: #ffffff; border-radius: 3px; }"
+        )
+        self.btn_toggle_prop.clicked.connect(self._toggle_properties_panel)
+        prop_header_layout.addWidget(self.btn_toggle_prop, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        prop_vbox.addWidget(prop_header_widget)
+
+        self.prop_grid = PropertyGridWidget(prop_container)
+        prop_vbox.addWidget(self.prop_grid)
+
+        self.sidebar_splitter.addWidget(conn_container)
+        self.sidebar_splitter.addWidget(prop_container)
+
+        # Restore saved vertical splitter sizes or default to [670, 330]
+        saved_splitter = self.settings.get("sidebar_splitter_sizes", [670, 330])
+        self.sidebar_splitter.setSizes(saved_splitter)
         self.sidebar_splitter.setStretchFactor(0, 67)
         self.sidebar_splitter.setStretchFactor(1, 33)
+        self.sidebar_splitter.splitterMoved.connect(self._on_sidebar_splitter_moved)
 
         sidebar_layout.addWidget(self.sidebar_splitter)
         self.sidebar_dock.setWidget(sidebar_container)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.sidebar_dock)
+
+        # Allow sidebar dock width adjustment up to 450px and restore saved width
+        self.sidebar_dock.setMaximumWidth(450)
+        saved_width = self.settings.get("sidebar_width", 260)
+        self.resizeDocks([self.sidebar_dock], [saved_width], Qt.Orientation.Horizontal)
+        self.sidebar_dock.visibilityChanged.connect(self._on_dock_visibility_changed)
 
         # Connect signals for property grid sync and tree updates
         self.tree_widget.node_selected.connect(self.prop_grid.load_node)
@@ -87,7 +198,8 @@ class MainWindow(QMainWindow):
         self._create_toolbar()
         self._create_quick_connect_bar()
 
-        self.statusBar().showMessage("Ready / Listo")
+        self.statusBar().showMessage("Ready")
+
 
         # Auto-load existing connections or default tree
         self._auto_load_connections()
@@ -100,7 +212,6 @@ class MainWindow(QMainWindow):
                 parser = mRemoteNGXmlParser(master_password=self.master_password)
                 root_node, ver = parser.parse_file(default_path)
                 self.tree_widget.load_tree(root_node)
-                self.statusBar().showMessage(f"Loaded connections from {default_path}")
                 return
             except Exception:
                 pass
@@ -136,6 +247,8 @@ class MainWindow(QMainWindow):
 
     def _on_property_changed(self, node: ConnectionNode):
         self.tree_widget.update_node_display(node)
+        if hasattr(self, "session_tabs"):
+            self.session_tabs.update_node_tabs(node)
         self._auto_save_connections()
 
     def _create_menus(self):
@@ -145,31 +258,31 @@ class MainWindow(QMainWindow):
         # File Menu
         menu_file = menubar.addMenu(tr("file", lang))
 
-        act_new_conn = QAction(QIcon.fromTheme("list-add"), tr("new_connection", lang), self)
+        act_new_conn = QAction(get_icon("add"), tr("new_connection", lang), self)
         act_new_conn.setShortcut("Ctrl+N")
         act_new_conn.triggered.connect(lambda: self.tree_widget.add_new_connection())
         menu_file.addAction(act_new_conn)
 
-        act_new_folder = QAction(QIcon.fromTheme("folder-new"), tr("new_folder", lang), self)
+        act_new_folder = QAction(get_icon("folder"), tr("new_folder", lang), self)
         act_new_folder.setShortcut("Ctrl+Shift+N")
         act_new_folder.triggered.connect(lambda: self.tree_widget.add_new_folder())
         menu_file.addAction(act_new_folder)
 
         menu_file.addSeparator()
 
-        act_open = QAction(QIcon.fromTheme("document-open"), tr("import_xml", lang), self)
+        act_open = QAction(get_icon("upload"), tr("import_xml", lang), self)
         act_open.setShortcut("Ctrl+O")
         act_open.triggered.connect(self.import_xml)
         menu_file.addAction(act_open)
 
-        act_save = QAction(QIcon.fromTheme("document-save"), tr("export_xml", lang), self)
+        act_save = QAction(get_icon("download"), tr("export_xml", lang), self)
         act_save.setShortcut("Ctrl+S")
         act_save.triggered.connect(self.export_xml)
         menu_file.addAction(act_save)
 
         menu_file.addSeparator()
 
-        act_exit = QAction(QIcon.fromTheme("application-exit"), tr("exit", lang), self)
+        act_exit = QAction(get_icon("close"), tr("exit", lang), self)
         act_exit.setShortcut("Ctrl+Q")
         act_exit.triggered.connect(self.close)
         menu_file.addAction(act_exit)
@@ -180,22 +293,22 @@ class MainWindow(QMainWindow):
 
         # Settings Menu
         menu_settings = menubar.addMenu(tr("settings", lang))
-        act_prefs = QAction(QIcon.fromTheme("preferences-system"), tr("preferences", lang), self)
+        act_prefs = QAction(get_icon("settings"), tr("preferences", lang), self)
         act_prefs.triggered.connect(self._open_preferences)
         menu_settings.addAction(act_prefs)
 
-        act_master_pass = QAction(tr("set_master_pass", lang), self)
+        act_master_pass = QAction(get_icon("password"), tr("set_master_pass", lang), self)
         act_master_pass.triggered.connect(self._change_master_password)
         menu_settings.addAction(act_master_pass)
 
         # Help Menu
         menu_help = menubar.addMenu(tr("help", lang))
-        act_about = QAction(tr("about", lang), self)
+        act_about = QAction(get_icon("settings"), tr("about", lang), self)
         act_about.triggered.connect(self._show_about)
         menu_help.addAction(act_about)
 
     def _open_preferences(self):
-        """Opens the Preferences & Options dialog."""
+        """Opens the Preferences and Options dialog."""
         dialog = PreferencesDialog(self.settings, self)
         if dialog.exec() == PreferencesDialog.DialogCode.Accepted:
             # Refresh language & window title
@@ -213,36 +326,37 @@ class MainWindow(QMainWindow):
     def _create_toolbar(self):
         lang = self.settings.language
         toolbar = QToolBar("Main Toolbar", self)
-        toolbar.setIconSize(QSize(24, 24))
+        toolbar.setObjectName("MainToolbar")
+        toolbar.setIconSize(QSize(22, 22))
         self.addToolBar(toolbar)
 
-        act_new_conn = QAction(QIcon.fromTheme("list-add"), tr("new_connection", lang), self)
+        act_new_conn = QAction(get_icon("add"), tr("new_connection", lang), self)
         act_new_conn.triggered.connect(lambda: self.tree_widget.add_new_connection())
         toolbar.addAction(act_new_conn)
 
-        act_new_folder = QAction(QIcon.fromTheme("folder-new"), tr("new_folder", lang), self)
+        act_new_folder = QAction(get_icon("folder"), tr("new_folder", lang), self)
         act_new_folder.triggered.connect(lambda: self.tree_widget.add_new_folder())
         toolbar.addAction(act_new_folder)
 
         toolbar.addSeparator()
 
-        act_connect = QAction(QIcon.fromTheme("media-playback-start"), tr("connect", lang), self)
+        act_connect = QAction(get_icon("connect"), tr("connect", lang), self)
         act_connect.triggered.connect(self._connect_selected)
         toolbar.addAction(act_connect)
 
         toolbar.addSeparator()
 
-        act_import = QAction(QIcon.fromTheme("document-open"), tr("import_xml", lang), self)
+        act_import = QAction(get_icon("upload"), tr("import_xml", lang), self)
         act_import.triggered.connect(self.import_xml)
         toolbar.addAction(act_import)
 
-        act_export = QAction(QIcon.fromTheme("document-save"), tr("export_xml", lang), self)
+        act_export = QAction(get_icon("download"), tr("export_xml", lang), self)
         act_export.triggered.connect(self.export_xml)
         toolbar.addAction(act_export)
 
         toolbar.addSeparator()
 
-        act_prefs_tb = QAction(QIcon.fromTheme("preferences-system"), tr("preferences", lang), self)
+        act_prefs_tb = QAction(get_icon("settings"), tr("preferences", lang), self)
         act_prefs_tb.triggered.connect(self._open_preferences)
         toolbar.addAction(act_prefs_tb)
 
@@ -250,14 +364,16 @@ class MainWindow(QMainWindow):
         """Creates top Quick Connect bar for manual IP/host input, protocol selection and Save option."""
         lang = self.settings.language
         qc_toolbar = QToolBar("Quick Connect Bar", self)
+        qc_toolbar.setObjectName("QuickConnectBar")
         qc_toolbar.setIconSize(QSize(20, 20))
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, qc_toolbar)
 
         qc_toolbar.addWidget(QLabel(f" {tr('quick_connect', lang)}: "))
 
         self.qc_host = QLineEdit()
-        self.qc_host.setPlaceholderText("Hostname / IP (e.g. 192.168.1.50)")
+        self.qc_host.setPlaceholderText("Hostname / IP")
         self.qc_host.setMinimumWidth(180)
+        self.qc_host.setMaximumWidth(260)
         self.qc_host.returnPressed.connect(self._exec_quick_connect)
         qc_toolbar.addWidget(self.qc_host)
 
@@ -273,10 +389,18 @@ class MainWindow(QMainWindow):
         self.qc_port.setValue(22)
         qc_toolbar.addWidget(self.qc_port)
 
+        qc_toolbar.addWidget(QLabel(f" {tr('domain', lang)}: "))
+        self.qc_domain = QLineEdit()
+        self.qc_domain.setPlaceholderText(tr("domain", lang))
+        self.qc_domain.setMaximumWidth(120)
+        self.qc_domain.returnPressed.connect(self._exec_quick_connect)
+        qc_toolbar.addWidget(self.qc_domain)
+
         qc_toolbar.addWidget(QLabel(f" {tr('user', lang)}: "))
         self.qc_user = QLineEdit()
         self.qc_user.setPlaceholderText(tr("user", lang))
         self.qc_user.setMaximumWidth(120)
+        self.qc_user.returnPressed.connect(self._exec_quick_connect)
         qc_toolbar.addWidget(self.qc_user)
 
         qc_toolbar.addWidget(QLabel(f" {tr('pass', lang)}: "))
@@ -284,18 +408,19 @@ class MainWindow(QMainWindow):
         self.qc_pass.setEchoMode(QLineEdit.EchoMode.Password)
         self.qc_pass.setPlaceholderText(tr("pass", lang))
         self.qc_pass.setMaximumWidth(120)
+        self.qc_pass.returnPressed.connect(self._exec_quick_connect)
         qc_toolbar.addWidget(self.qc_pass)
 
         qc_toolbar.addSeparator()
 
-        # ▶ Quick Connect Action Button
-        act_qc_connect = QAction(QIcon.fromTheme("media-playback-start"), f" {tr('connect', lang)}", self)
+        # Quick Connect Action Button
+        act_qc_connect = QAction(get_icon("connect"), f" {tr('connect', lang)}", self)
         act_qc_connect.setToolTip("Connect directly to Hostname / IP")
         act_qc_connect.triggered.connect(self._exec_quick_connect)
         qc_toolbar.addAction(act_qc_connect)
 
-        # 💾 Save Connection Action Button
-        act_qc_save = QAction(QIcon.fromTheme("document-save"), f" {tr('save_conn', lang)}", self)
+        # Save Connection Action Button
+        act_qc_save = QAction(get_icon("save"), f" {tr('save_conn', lang)}", self)
         act_qc_save.setToolTip("Save this Quick Connect entry into the left connections tree")
         act_qc_save.triggered.connect(self._exec_quick_save)
         qc_toolbar.addAction(act_qc_save)
@@ -324,6 +449,7 @@ class MainWindow(QMainWindow):
             port=self.qc_port.value(),
             username=self.qc_user.text().strip(),
             password=self.qc_pass.text(),
+            domain=self.qc_domain.text().strip(),
             legacy_ssh=True
         )
         self.session_tabs.open_session(quick_node)
@@ -348,6 +474,7 @@ class MainWindow(QMainWindow):
             port=self.qc_port.value(),
             username=self.qc_user.text().strip(),
             password=self.qc_pass.text(),
+            domain=self.qc_domain.text().strip(),
             legacy_ssh=True
         )
 
@@ -410,15 +537,144 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             tr("about", self.settings.language),
-            "<h3>pyRemoteNG v1.3.0</h3>"
-            "<p>Clon de mRemoteNG nativo en Python para Linux (KDE, GNOME, XFCE) y Multiplataforma.</p>"
-            "<p>Soporte Bilingüe: Español / English.</p>"
-            "<p>Motor SSH con soporte legacy (SSH1, SSH2, ciphers/KEX antiguos).</p>"
-            "<p>Gestor SFTP/FTP integrado por pestaña de sesión (con reutilización de transporte activo y fallback nativo).</p>"
-            "<p>Logs de sesión configurables, buffer de líneas infinitas y exportación a TXT.</p>"
-            "<p>Seguridad de clave maestra con PBKDF2-HMAC-SHA256 y Salt único.</p>"
+            "<p style=\"font-size:12px; font-weight:normal;\">pyRemoteMPC v1.3.0</p>"
+            "<p>Native Python Multi-Protocol Connections Manager for Linux (KDE, GNOME, XFCE) and Cross-Platform.</p>"
+            "<p>SSH Engine with legacy device support (SSH1, SSH2, legacy ciphers and KEX).</p>"
+            "<p>Integrated SFTP/FTP File Manager per active session tab.</p>"
+            "<p>Configurable session logs, infinite scrollback buffer, and TXT output export.</p>"
+            "<p>Master Key Security with PBKDF2-HMAC-SHA256.</p>"
+
         )
 
+    def _toggle_sidebar(self):
+        is_vis = self.sidebar_dock.isVisible()
+        self.sidebar_dock.setVisible(not is_vis)
+        self.btn_toggle_sidebar.setText("▶" if is_vis else "◀")
+        self._sync_toggle_button_position()
+
+    def _toggle_properties_panel(self):
+        if not hasattr(self, "prop_grid") or not hasattr(self, "sidebar_splitter"):
+            return
+
+        if self.prop_grid.isVisible():
+            sizes = self.sidebar_splitter.sizes()
+            if len(sizes) == 2 and sizes[1] > 40:
+                self._saved_prop_splitter_sizes = sizes
+            self.prop_grid.setVisible(False)
+            total = sum(self.sidebar_splitter.sizes())
+            self.sidebar_splitter.setSizes([total - 32, 32])
+            self.btn_toggle_prop.setText("▲")
+        else:
+            self.prop_grid.setVisible(True)
+            saved = getattr(self, "_saved_prop_splitter_sizes", None)
+            if not saved or len(saved) != 2 or saved[1] <= 40:
+                saved = self.settings.get("sidebar_splitter_sizes", [670, 330])
+            self.sidebar_splitter.setSizes(saved)
+            self.btn_toggle_prop.setText("▼")
+
+        self._sync_toggle_button_position()
+        QTimer.singleShot(20, self._sync_toggle_button_position)
+        self._save_sidebar_settings()
+
+    def _on_dock_visibility_changed(self, visible: bool):
+        self.btn_toggle_sidebar.setText("◀" if visible else "▶")
+        self._sync_toggle_button_position()
+
+    def _sync_toggle_button_position(self):
+        if not hasattr(self, "tree_widget") or not hasattr(self, "btn_toggle_sidebar") or not hasattr(self, "toggle_layout"):
+            return
+        try:
+            tree_pos_y = self.tree_widget.mapTo(self, QPoint(0, 0)).y()
+            tree_center_y = tree_pos_y + (self.tree_widget.height() // 2)
+
+            central_pos_y = self.centralWidget().mapTo(self, QPoint(0, 0)).y()
+            target_margin_top = max(0, tree_center_y - central_pos_y - (self.btn_toggle_sidebar.height() // 2))
+
+            self.toggle_layout.setContentsMargins(0, target_margin_top, 0, 0)
+        except Exception:
+            pass
+
+    def _on_sidebar_splitter_moved(self, *args):
+        self._sync_toggle_button_position()
+        self._save_sidebar_settings()
+
+    def _save_window_settings(self):
+        try:
+            geom = bytes(self.saveGeometry().toHex()).decode("ascii")
+            state = bytes(self.saveState().toHex()).decode("ascii")
+            self.settings.set("window_geometry", geom)
+            self.settings.set("window_state", state)
+        except Exception:
+            pass
+
+    def _restore_window_settings(self):
+        geom_str = self.settings.get("window_geometry", "")
+        if geom_str:
+            try:
+                self.restoreGeometry(QByteArray.fromHex(geom_str.encode("ascii")))
+            except Exception:
+                pass
+        state_str = self.settings.get("window_state", "")
+        if state_str:
+            try:
+                self.restoreState(QByteArray.fromHex(state_str.encode("ascii")))
+            except Exception:
+                pass
+
+    def _save_sidebar_settings(self):
+        if not getattr(self, "_initialized", False):
+            return
+        try:
+            if hasattr(self, "sidebar_dock") and self.sidebar_dock.isVisible():
+                w = self.sidebar_dock.width()
+                if w > 100:
+                    self.settings.set("sidebar_width", w)
+            if hasattr(self, "sidebar_splitter"):
+                sizes = self.sidebar_splitter.sizes()
+                if len(sizes) == 2 and sum(sizes) > 100:
+                    self.settings.set("sidebar_splitter_sizes", sizes)
+        except Exception:
+            pass
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        saved_width = self.settings.get("sidebar_width", 260)
+        saved_splitter = self.settings.get("sidebar_splitter_sizes", [670, 330])
+        self.resizeDocks([self.sidebar_dock], [saved_width], Qt.Orientation.Horizontal)
+        self.sidebar_splitter.setSizes(saved_splitter)
+        self._initialized = True
+        QTimer.singleShot(50, self._sync_toggle_button_position)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.sidebar_dock.setMaximumWidth(450)
+        self._sync_toggle_button_position()
+        self._save_sidebar_settings()
+
     def closeEvent(self, event):
+        if hasattr(self, "session_tabs"):
+            active_count = self.session_tabs.get_active_sessions_count()
+            if active_count > 0:
+                lang = self.settings.language
+                msg = tr("confirm_exit_app_msg", lang).format(count=active_count)
+                title = tr("confirm_exit_app_title", lang)
+
+                reply = QMessageBox.question(
+                    self,
+                    title,
+                    msg,
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    event.ignore()
+                    return
+
+            self.session_tabs.close_all_tabs(confirm=False)
+
+        self._save_window_settings()
+        self._save_sidebar_settings()
         self._auto_save_connections()
+        event.accept()
         super().closeEvent(event)
+

@@ -8,11 +8,12 @@ from PySide6.QtCore import Qt
 from pyremotempc.config.settings import SettingsManager
 from pyremotempc.config.i18n import tr
 from pyremotempc.crypto.master_key_manager import MasterKeyManager
+from pyremotempc.ui.icon_manager import get_icon
 
 
 class PreferencesDialog(QDialog):
     """
-    Preferences and Options Dialog for pyRemoteNG.
+    Preferences and Options Dialog for pyRemoteMPC.
     Allows configuring language (Spanish/English), session logs, infinite console scrollback buffer,
     aesthetic themes/fonts, and Master Encryption Key security settings.
     """
@@ -23,7 +24,7 @@ class PreferencesDialog(QDialog):
         self.lang = self.settings.language
         self.master_key_mgr = MasterKeyManager(self.settings)
 
-        self.setWindowTitle(f"{tr('preferences', self.lang)} - pyRemoteNG")
+        self.setWindowTitle(f"{tr('preferences', self.lang)} - pyRemoteMPC")
         self.setMinimumSize(540, 440)
 
         main_layout = QVBoxLayout(self)
@@ -41,10 +42,12 @@ class PreferencesDialog(QDialog):
         btn_box.addStretch()
 
         self.btn_save = QPushButton(tr("save_apply", self.lang), self)
+        self.btn_save.setIcon(get_icon("check"))
         self.btn_save.clicked.connect(self._on_save)
         btn_box.addWidget(self.btn_save)
 
         self.btn_cancel = QPushButton(tr("cancel", self.lang), self)
+        self.btn_cancel.setIcon(get_icon("close"))
         self.btn_cancel.clicked.connect(self.reject)
         btn_box.addWidget(self.btn_cancel)
 
@@ -57,13 +60,10 @@ class PreferencesDialog(QDialog):
         group = QGroupBox(tr("appearance", self.lang), tab)
         form = QFormLayout(group)
 
-        # Language Selector (Spanish / English)
+        # Language Selector (English)
         self.combo_lang = QComboBox(group)
-        self.combo_lang.addItem("Español (Spanish)", "es")
-        self.combo_lang.addItem("English (Inglés)", "en")
-
-        curr_idx = 0 if self.settings.language == "es" else 1
-        self.combo_lang.setCurrentIndex(curr_idx)
+        self.combo_lang.addItem("English", "en")
+        self.combo_lang.setCurrentIndex(0)
         form.addRow(tr("language", self.lang) + ":", self.combo_lang)
 
         # Theme Selector
@@ -86,7 +86,7 @@ class PreferencesDialog(QDialog):
 
         layout.addWidget(group)
         layout.addStretch()
-        self.tab_widget.addTab(tab, tr("appearance", self.lang))
+        self.tab_widget.addTab(tab, get_icon("settings"), tr("appearance", self.lang))
 
     def _init_terminal_logging_tab(self):
         tab = QWidget()
@@ -105,7 +105,8 @@ class PreferencesDialog(QDialog):
         self.edit_log_dir.setText(self.settings.get("log_directory", "~/.config/pyremotempc/logs"))
         dir_layout.addWidget(self.edit_log_dir)
 
-        btn_browse = QPushButton("Examinar / Browse...", group_log)
+        btn_browse = QPushButton("Browse...", group_log)
+        btn_browse.setIcon(get_icon("folder"))
         btn_browse.clicked.connect(self._browse_log_dir)
         dir_layout.addWidget(btn_browse)
 
@@ -123,14 +124,14 @@ class PreferencesDialog(QDialog):
         self.spin_scrollback.setSpecialValueText(tr("infinite_lines", self.lang))
         form_term.addRow(tr("scrollback", self.lang) + ":", self.spin_scrollback)
 
-        lbl_info = QLabel("Nota: Configurar en 0 para activar líneas infinitas en consola (recomendado para configs largas de Cisco).", group_term)
+        lbl_info = QLabel("Note: Set to 0 for no limit on console scrollback lines.", group_term)
         lbl_info.setWordWrap(True)
-        lbl_info.setStyleSheet("color: #888888; font-size: 11px;")
+        lbl_info.setStyleSheet("color: #888888; font-size: 11px; font-weight: normal;")
         form_term.addRow(lbl_info)
 
         layout.addWidget(group_term)
         layout.addStretch()
-        self.tab_widget.addTab(tab, "Terminal & Logs")
+        self.tab_widget.addTab(tab, get_icon("log"), "Terminal and Logs")
 
     def _init_security_tab(self):
         tab = QWidget()
@@ -140,12 +141,13 @@ class PreferencesDialog(QDialog):
         form_sec = QFormLayout(group_sec)
 
         lbl_sec_info = QLabel(
-            "Seguridad: Las contraseñas maestras se derivan con PBKDF2-HMAC-SHA256 (200,000 iteraciones + Salt). "
-            "Las contraseñas en texto plano NUNCA se guardan en disco.",
+            "Security: Master passwords are derived using PBKDF2-HMAC-SHA256 (200,000 iterations + Salt). "
+            "Plaintext passwords are NEVER saved to disk.",
             group_sec
         )
         lbl_sec_info.setWordWrap(True)
-        lbl_sec_info.setStyleSheet("color: #4ec9b0; font-size: 11px;")
+        lbl_sec_info.setStyleSheet("color: #4ec9b0; font-size: 11px; font-weight: normal;")
+
         form_sec.addRow(lbl_sec_info)
 
         self.edit_curr_pass = QLineEdit(group_sec)
@@ -166,11 +168,11 @@ class PreferencesDialog(QDialog):
 
         layout.addWidget(group_sec)
         layout.addStretch()
-        self.tab_widget.addTab(tab, "Seguridad / Security")
+        self.tab_widget.addTab(tab, get_icon("security"), "Security")
 
     def _browse_log_dir(self):
         directory = QFileDialog.getExistingDirectory(
-            self, "Seleccionar Directorio de Logs", os.path.expanduser(self.edit_log_dir.text())
+            self, "Select Log Output Directory", os.path.expanduser(self.edit_log_dir.text())
         )
         if directory:
             self.edit_log_dir.setText(directory)
@@ -181,22 +183,23 @@ class PreferencesDialog(QDialog):
         confirm_pass = self.edit_confirm_pass.text()
 
         if not self.master_key_mgr.verify_master_key(curr_pass):
-            QMessageBox.warning(self, "Error de Seguridad", "La contraseña maestra actual es incorrecta.")
+            QMessageBox.warning(self, "Security Error", "Current master password is incorrect.")
             return
 
         if not new_pass:
-            QMessageBox.warning(self, "Error de Seguridad", "La nueva contraseña maestra no puede estar vacía.")
+            QMessageBox.warning(self, "Security Error", "New master password cannot be empty.")
             return
 
         if new_pass != confirm_pass:
-            QMessageBox.warning(self, "Error de Seguridad", "La nueva contraseña y la confirmación no coinciden.")
+            QMessageBox.warning(self, "Security Error", "New master password and confirmation do not match.")
             return
 
         self.master_key_mgr.set_master_key(new_pass)
         self.edit_curr_pass.clear()
         self.edit_new_pass.clear()
         self.edit_confirm_pass.clear()
-        QMessageBox.information(self, "Seguridad Actualizada", "Clave Maestra de Encriptación actualizada con éxito.")
+        QMessageBox.information(self, "Security Updated", "Master Encryption Password updated successfully.")
+
 
     def _on_save(self):
         selected_lang = self.combo_lang.currentData()

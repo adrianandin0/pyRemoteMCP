@@ -3,11 +3,16 @@ import os
 import re
 import datetime
 from typing import Optional
+from collections import defaultdict
+import pyte
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QPlainTextEdit, QFileDialog, QMessageBox
 from PySide6.QtGui import QFont, QTextCursor, QKeyEvent, QInputMethodEvent
 from PySide6.QtCore import Qt, Signal, QObject, QEvent
 from pyremotempc.engine.ssh_engine import SSHEngine
+from pyremotempc.engine.ssh1_engine import SSH1Engine
+from pyremotempc.engine.telnet_engine import TelnetEngine
 from pyremotempc.config.settings import SettingsManager
+
 
 def term_debug(msg: str):
     try:
@@ -16,13 +21,6 @@ def term_debug(msg: str):
     except Exception:
         pass
 
-# Regex to split ANSI escape codes (keeps them as tokens)
-ANSI_SPLIT_REGEX = re.compile(
-    r'(\x1b\][^\x07]*\x07|'          # OSC Operating System Commands (window titles)
-    r'\x1b\[\??[0-9;]*[a-zA-Z]|'    # CSI Control Sequence Introducer
-    r'\x1b[()<>=][0-9A-Z]|'         # Character set selection
-    r'\x1b[M]|\x1b[78])'             # Save/restore cursor & mouse controls
-)
 
 THEME_STYLES = {
     "Dark": "QPlainTextEdit { background-color: #1e1e1e; color: #d4d4d4; selection-background-color: #264f78; }",
@@ -38,14 +36,15 @@ class OutputBridge(QObject):
 
 
 class SSHPlainTextEdit(QPlainTextEdit):
-    def __init__(self, engine: SSHEngine, parent=None):
+    def __init__(self, engine, parent=None):
         super().__init__(parent)
         self.engine = engine
+        self._terminal_widget = parent
         # Force all keys to bypass Wayland InputMethod and go directly to keyPressEvent
         self.setAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled, False)
-        # The viewport natively handles events first, so we MUST filter it
+        # The viewport natively handles events first, so we filter it
         self.viewport().installEventFilter(self)
-        
+
     def eventFilter(self, obj, event):
         if obj == self.viewport():
             if event.type() == QEvent.Type.KeyPress:
@@ -55,7 +54,7 @@ class SSHPlainTextEdit(QPlainTextEdit):
                 self.inputMethodEvent(event)
                 return True
         return super().eventFilter(obj, event)
-        
+
     def insertFromMimeData(self, source):
         if source.hasText():
             text = source.text()
@@ -63,15 +62,14 @@ class SSHPlainTextEdit(QPlainTextEdit):
                 self.engine.send_input(text)
         else:
             super().insertFromMimeData(source)
-            
+
     def inputMethodEvent(self, event):
         """Catch text inserted via Input Method (Wayland) that bypasses keyPressEvent."""
         text = event.commitString()
         if text and self.engine:
             term_debug(f"SENDING TEXT (IME): {repr(text)}")
             self.engine.send_input(text)
-        # Intentionally not calling super() to prevent native insertion
-            
+
     def keyPressEvent(self, event: QKeyEvent):
         if not self.engine:
             return super().keyPressEvent(event)
@@ -82,7 +80,9 @@ class SSHPlainTextEdit(QPlainTextEdit):
 
         ctrl_pressed = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
         shift_pressed = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+        alt_pressed = bool(modifiers & Qt.KeyboardModifier.AltModifier)
 
+        # Ctrl+Shift+C -> Copy, Ctrl+Shift+V -> Paste
         if ctrl_pressed and shift_pressed:
             if key == Qt.Key.Key_C:
                 self.copy()
@@ -91,60 +91,62 @@ class SSHPlainTextEdit(QPlainTextEdit):
                 self.paste()
                 return
 
-        if ctrl_pressed and not shift_pressed:
-            if key == Qt.Key.Key_C:
-                self.engine.send_input("\x03")
+        # Handle Ctrl + Key combinations (A-Z)
+        if ctrl_pressed and not shift_pressed and not alt_pressed:
+            if Qt.Key.Key_A <= key <= Qt.Key.Key_Z:
+                ctrl_code = chr(key - Qt.Key.Key_A + 1)
+                self.engine.send_input(ctrl_code)
                 return
-            elif key == Qt.Key.Key_D:
-                self.engine.send_input("\x04")
+            elif key == Qt.Key.Key_BracketLeft:
+                self.engine.send_input("\x1b")
                 return
-            elif key == Qt.Key.Key_Z:
-                self.engine.send_input("\x1a")
+            elif key == Qt.Key.Key_Backslash:
+                self.engine.send_input("\x1c")
                 return
-            elif key == Qt.Key.Key_L:
-                self.engine.send_input("\x0c")
-                return
-            elif key == Qt.Key.Key_U:
-                self.engine.send_input("\x15")
-                return
-            elif key == Qt.Key.Key_A:
-                self.engine.send_input("\x01")
-                return
-            elif key == Qt.Key.Key_E:
-                self.engine.send_input("\x05")
+            elif key == Qt.Key.Key_BracketRight:
+                self.engine.send_input("\x1d")
                 return
 
-        if key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
-            term_debug("SENDING: \\r (Enter)")
+        # Check DECCKM (Application Cursor Keys Mode) tracked by pyte
+        is_app_cursor = False
+        if hasattr(self._terminal_widget, "screen") and self._terminal_widget.screen:
+            is_app_cursor = bool({1, 32} & set(self._terminal_widget.screen.mode))
+
+        # Arrow Keys
+        if key == Qt.Key.Key_Up:
+            self.engine.send_input("\x1bOA" if is_app_cursor else "\x1b[A")
+            return
+        elif key == Qt.Key.Key_Down:
+            self.engine.send_input("\x1bOB" if is_app_cursor else "\x1b[B")
+            return
+        elif key == Qt.Key.Key_Right:
+            self.engine.send_input("\x1bOC" if is_app_cursor else "\x1b[C")
+            return
+        elif key == Qt.Key.Key_Left:
+            self.engine.send_input("\x1bOD" if is_app_cursor else "\x1b[D")
+            return
+
+        # Special Navigation Keys
+        elif key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
             self.engine.send_input("\r")
             return
         elif key == Qt.Key.Key_Backspace:
-            term_debug("SENDING: \\x7f (Backspace)")
             self.engine.send_input("\x7f")
             return
         elif key == Qt.Key.Key_Delete:
-            term_debug("SENDING: \\x1b[3~ (Delete)")
             self.engine.send_input("\x1b[3~")
             return
+        elif key == Qt.Key.Key_Insert:
+            self.engine.send_input("\x1b[2~")
+            return
         elif key == Qt.Key.Key_Escape:
-            term_debug("SENDING: \\x1b (Escape)")
             self.engine.send_input("\x1b")
             return
         elif key == Qt.Key.Key_Tab:
-            term_debug("SENDING: \\t (Tab)")
-            self.engine.send_input("\t")
-            return
-        elif key == Qt.Key.Key_Up:
-            self.engine.send_input("\x1b[A")
-            return
-        elif key == Qt.Key.Key_Down:
-            self.engine.send_input("\x1b[B")
-            return
-        elif key == Qt.Key.Key_Right:
-            self.engine.send_input("\x1b[C")
-            return
-        elif key == Qt.Key.Key_Left:
-            self.engine.send_input("\x1b[D")
+            if shift_pressed:
+                self.engine.send_input("\x1b[Z")
+            else:
+                self.engine.send_input("\t")
             return
         elif key == Qt.Key.Key_PageUp:
             self.engine.send_input("\x1b[5~")
@@ -158,18 +160,63 @@ class SSHPlainTextEdit(QPlainTextEdit):
         elif key == Qt.Key.Key_End:
             self.engine.send_input("\x1b[F")
             return
+
+        # Function Keys (F1 - F12)
+        elif key == Qt.Key.Key_F1:
+            self.engine.send_input("\x1bOP")
+            return
+        elif key == Qt.Key.Key_F2:
+            self.engine.send_input("\x1bOQ")
+            return
+        elif key == Qt.Key.Key_F3:
+            self.engine.send_input("\x1bOR")
+            return
+        elif key == Qt.Key.Key_F4:
+            self.engine.send_input("\x1bOS")
+            return
+        elif key == Qt.Key.Key_F5:
+            self.engine.send_input("\x1b[15~")
+            return
+        elif key == Qt.Key.Key_F6:
+            self.engine.send_input("\x1b[17~")
+            return
+        elif key == Qt.Key.Key_F7:
+            self.engine.send_input("\x1b[18~")
+            return
+        elif key == Qt.Key.Key_F8:
+            self.engine.send_input("\x1b[19~")
+            return
+        elif key == Qt.Key.Key_F9:
+            self.engine.send_input("\x1b[20~")
+            return
+        elif key == Qt.Key.Key_F10:
+            self.engine.send_input("\x1b[21~")
+            return
+        elif key == Qt.Key.Key_F11:
+            self.engine.send_input("\x1b[23~")
+            return
+        elif key == Qt.Key.Key_F12:
+            self.engine.send_input("\x1b[24~")
+            return
+
+        # Alt + key prefix
+        elif alt_pressed and text:
+            self.engine.send_input("\x1b" + text)
+            return
+
+        # Standard text input
         elif text:
-            term_debug(f"SENDING TEXT: {repr(text)}")
             self.engine.send_input(text)
             return
-            
+
         event.accept()
+
 
 class TerminalWidget(QWidget):
     """
-    Interactive Terminal Widget for SSH & Telnet sessions in Qt.
-    Supports ANSI escape codes, configurable scrollback (including infinite lines for Cisco configs),
-    automatic file logging, TXT export, themes, and complete keyboard PTY forwarding.
+    Interactive VT100 / xterm Terminal Widget for SSH & Telnet sessions in pyRemoteMPC.
+    Uses 'pyte' full screen terminal emulator for perfect vim, htop, nano, bash navigation,
+    scrollback history, automatic file logging, TXT export, themes, and keyboard PTY forwarding.
     """
     title_changed = Signal(str)
     session_closed = Signal()
@@ -182,15 +229,39 @@ class TerminalWidget(QWidget):
         self.bridge = OutputBridge(self)
         self.bridge.output_received.connect(self.append_text)
 
-        self.engine: SSHEngine = SSHEngine(
-            hostname=node.hostname,
-            port=node.port,
-            username=node.username,
-            password=node.password,
-            key_filename=getattr(node, "private_key_file", ""),
-            legacy_mode=getattr(node, "legacy_ssh", True),
-            protocol=getattr(node, "protocol", "SSH2")
-        )
+        # Setup pyte VT100/xterm screen emulator
+        scroll_limit = self.settings.scrollback_lines if self.settings.scrollback_lines > 0 else 100000
+        self.screen = pyte.HistoryScreen(80, 24, history=scroll_limit)
+        self.stream = pyte.Stream(self.screen)
+
+        proto = (node.protocol or "SSH2").upper()
+        key_file = getattr(node, "key_path", "") or getattr(node, "private_key_file", "")
+
+        if proto == "TELNET":
+            self.engine = TelnetEngine(
+                hostname=node.hostname,
+                port=node.port if node.port else 23,
+                username=node.username,
+                password=node.password
+            )
+        elif proto == "SSH1":
+            self.engine = SSH1Engine(
+                hostname=node.hostname,
+                port=node.port if node.port else 22,
+                username=node.username,
+                password=node.password,
+                key_filename=key_file
+            )
+        else:
+            self.engine = SSHEngine(
+                hostname=node.hostname,
+                port=node.port if node.port else 22,
+                username=node.username,
+                password=node.password,
+                key_filename=key_file,
+                legacy_mode=getattr(node, "legacy_ssh", True),
+                protocol=proto
+            )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -212,94 +283,191 @@ class TerminalWidget(QWidget):
         font = QFont(self.settings.font_family, self.settings.font_size)
         self.text_edit.setFont(font)
 
-        # Set maximum block (line) count: 0 means infinite scrollback lines
-        max_lines = self.settings.scrollback_lines
-        self.text_edit.setMaximumBlockCount(max_lines)
-
         style = THEME_STYLES.get(self.settings.theme, THEME_STYLES["Dark"])
         self.text_edit.setStyleSheet(style)
 
     def _init_session_logger(self):
         try:
             log_dir = self.settings.log_directory
-            os.makedirs(log_dir, exist_ok=True)
+            try:
+                os.makedirs(log_dir, exist_ok=True)
+            except Exception:
+                log_dir = os.path.expanduser("~/.config/pyremotempc/logs")
+                os.makedirs(log_dir, exist_ok=True)
+
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            clean_host = re.sub(r'[^a-zA-Z0-9_\.-]', '_', self.node.hostname or self.node.name)
-            filename = f"{clean_host}_{timestamp}.log"
+            proto = (self.node.protocol or "SSH2").upper()
+            clean_host = re.sub(r'[^a-zA-Z0-9_\.-]', '_', self.node.hostname or self.node.name or "session")
+            filename = f"{proto}_{clean_host}_{timestamp}.log"
             filepath = os.path.join(log_dir, filename)
             self.log_file = open(filepath, "a", encoding="utf-8")
         except Exception:
             self.log_file = None
 
+    def _safe_resize_screen(self, new_lines: int, new_columns: int):
+        """
+        Safely resizes pyte.HistoryScreen without destroying top lines when height decreases.
+        Standard pyte.Screen.resize() calls delete_lines() from top, destroying terminal content.
+        This method pushes cut-off lines to screen.history.top so zero content is lost.
+        """
+        old_lines = self.screen.lines
+        old_columns = self.screen.columns
+
+        if new_lines == old_lines and new_columns == old_columns:
+            return
+
+        # 1. Update columns if changed
+        if new_columns != old_columns:
+            self.screen.columns = new_columns
+            for line in list(self.screen.buffer.values()):
+                if new_columns < old_columns:
+                    for x in range(new_columns, old_columns):
+                        line.pop(x, None)
+
+        # 2. Update lines if changed
+        if new_lines != old_lines:
+            if new_lines < old_lines:
+                # Find max non-empty row index or cursor row
+                max_row = self.screen.cursor.y
+                for r in range(old_lines - 1, self.screen.cursor.y, -1):
+                    row_str = "".join(self.screen.buffer[r][c].data for c in range(self.screen.columns)).rstrip()
+                    if row_str:
+                        max_row = r
+                        break
+
+                needed_lines = max_row + 1
+                if needed_lines <= new_lines:
+                    # Content fits in new height, trim bottom empty lines
+                    for r in range(new_lines, old_lines):
+                        self.screen.buffer.pop(r, None)
+                    self.screen.lines = new_lines
+                else:
+                    # Content exceeds new height; push top overflow lines to history.top
+                    shift = needed_lines - new_lines
+                    for r in range(shift):
+                        if r in self.screen.buffer:
+                            self.screen.history.top.append(self.screen.buffer[r])
+
+                    new_buf = defaultdict(self.screen.buffer.default_factory)
+                    for r in range(shift, old_lines):
+                        if r in self.screen.buffer:
+                            new_buf[r - shift] = self.screen.buffer[r]
+                    self.screen.buffer = new_buf
+                    self.screen.lines = new_lines
+                    self.screen.cursor.y = max(0, self.screen.cursor.y - shift)
+            else:
+                # Expanding height: pull lines from history.top back into display if available
+                avail_history = len(self.screen.history.top)
+                shift = min(avail_history, new_lines - old_lines)
+                if shift > 0:
+                    pulled_lines = [self.screen.history.top.pop() for _ in range(shift)][::-1]
+                    new_buf = defaultdict(self.screen.buffer.default_factory)
+                    for i, line in enumerate(pulled_lines):
+                        new_buf[i] = line
+                    for r in range(old_lines):
+                        if r in self.screen.buffer:
+                            new_buf[r + shift] = self.screen.buffer[r]
+                    self.screen.buffer = new_buf
+                    self.screen.cursor.y = min(new_lines - 1, self.screen.cursor.y + shift)
+                self.screen.lines = new_lines
+
+        self.screen.dirty.update(range(new_lines))
+        self.screen.set_margins()
+
+    def _update_pty_dimensions(self):
+        if not hasattr(self, "text_edit") or not hasattr(self, "screen"):
+            return
+        fm = self.text_edit.fontMetrics()
+        char_w = max(1, fm.horizontalAdvance("M"))
+        char_h = max(1, fm.height())
+        vp_w = self.text_edit.viewport().width()
+        vp_h = self.text_edit.viewport().height()
+
+        if vp_w < 100 or vp_h < 100:
+            win = self.window()
+            if win and win.width() > 500:
+                vp_w = max(800, win.width() - 300)
+                vp_h = max(400, win.height() - 180)
+            else:
+                vp_w = 1200
+                vp_h = 700
+
+        cols = max(40, vp_w // char_w)
+        rows = max(10, vp_h // char_h)
+
+        if cols != self.screen.columns or rows != self.screen.lines:
+            self._safe_resize_screen(rows, cols)
+            if hasattr(self.engine, "resize_pty"):
+                self.engine.resize_pty(cols, rows)
+            self.append_text("")
+
     def start_session(self):
         """Starts SSH connection."""
-        self.append_text(f"Connecting to {self.node.hostname}:{self.node.port} via {self.node.protocol}...\n")
-        connected = self.engine.connect(on_output=self.bridge.output_received.emit)
+        self._update_pty_dimensions()
+        self.append_text(f"Connecting to {self.node.hostname}:{self.node.port} via {self.node.protocol}...\r\n")
+        connected = self.engine.connect(
+            on_output=self.bridge.output_received.emit,
+            term_type="xterm-256color",
+            width=self.screen.columns,
+            height=self.screen.lines
+        )
         if not connected:
             self.session_closed.emit()
 
     def append_text(self, text: str):
-        """Appends output text onto terminal screen and writes to session log file."""
+        """Feeds output into pyte VT100 screen emulator and updates QPlainTextEdit screen."""
         term_debug(f"RECV: {repr(text)}")
-        cursor = self.text_edit.textCursor()
+        self.stream.feed(text)
 
-        tokens = ANSI_SPLIT_REGEX.split(text)
-        cleaned_for_log = ""
-        
-        for token in tokens:
-            if not token:
-                continue
-                
-            if token.startswith('\x1b'):
-                if token == '\x1b[D':
-                    cursor.movePosition(QTextCursor.MoveOperation.Left)
-                elif token == '\x1b[C':
-                    cursor.movePosition(QTextCursor.MoveOperation.Right)
-                elif token == '\x1b[K':
-                    cursor.movePosition(QTextCursor.MoveOperation.EndOfLine, QTextCursor.MoveMode.KeepAnchor)
-                    cursor.removeSelectedText()
-                elif token == '\x1b[H':
-                    cursor.movePosition(QTextCursor.MoveOperation.StartOfLine)
-                continue
+        # Clear scrollback history when clear command (\x1b[2J or \x1b[3J) is received
+        if "\x1b[2J" in text or "\x1b[3J" in text:
+            self.screen.history.top.clear()
 
-            cleaned_for_log += token
-            i = 0
-            while i < len(token):
-                char = token[i]
-                
-                if char == '\r' and i + 1 < len(token) and token[i+1] == '\n':
-                    cursor.movePosition(QTextCursor.MoveOperation.End)
-                    cursor.insertText('\n')
-                    i += 2
-                    continue
-                    
-                if char == '\x08' or char == '\b' or char == '\x7f':
-                    if not cursor.atBlockStart():
-                        cursor.movePosition(QTextCursor.MoveOperation.Left)
-                elif char == '\r':
-                    cursor.movePosition(QTextCursor.MoveOperation.StartOfLine)
-                elif char == '\n':
-                    cursor.movePosition(QTextCursor.MoveOperation.End)
-                    cursor.insertText('\n')
-                elif char == '\x07':
-                    pass # Ignore BELL
-                else:
-                    if ord(char) >= 32 or char == '\t':
-                        if cursor.position() < self.text_edit.document().characterCount() - 1 and not cursor.atBlockEnd():
-                            cursor.deleteChar()
-                        cursor.insertText(char)
-                i += 1
+        # Extract history lines and active screen display lines
+        history_lines = [
+            "".join(char.data for char in row.values()).rstrip()
+            for row in self.screen.history.top
+        ]
+        screen_lines = [line.rstrip() for line in self.screen.display]
 
-        self.text_edit.setTextCursor(cursor)
+        # Trim trailing blank lines on active screen if cursor is above them
+        cursor_y = self.screen.cursor.y
+        max_active_row = cursor_y
+        for r_idx in range(len(screen_lines) - 1, cursor_y, -1):
+            if screen_lines[r_idx]:
+                max_active_row = r_idx
+                break
+
+        active_screen_lines = screen_lines[:max_active_row + 1]
+        full_lines = history_lines + active_screen_lines
+        full_text = "\n".join(full_lines)
+
+        self.text_edit.setPlainText(full_text)
+
+        # Position text cursor to match pyte virtual cursor coordinates
+        cursor_line_idx = len(history_lines) + cursor_y
+        doc = self.text_edit.document()
+        block = doc.findBlockByNumber(min(cursor_line_idx, max(0, doc.blockCount() - 1)))
+
+        char_col = min(self.screen.cursor.x, max(0, block.length() - 1))
+        pos = block.position() + char_col
+
+        tc = self.text_edit.textCursor()
+        tc.setPosition(pos)
+        self.text_edit.setTextCursor(tc)
         self.text_edit.ensureCursorVisible()
 
-        # Write to log file if enabled
-        if self.log_file and not self.log_file.closed and cleaned_for_log:
+        # Write raw received text to session log file if enabled
+        if self.log_file and not self.log_file.closed:
             try:
-                self.log_file.write(cleaned_for_log)
+                self.log_file.write(text)
                 self.log_file.flush()
             except Exception:
                 pass
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_pty_dimensions()
 
     def export_to_txt(self):
         """Prompts user and exports current session terminal buffer to a TXT file."""
@@ -317,8 +485,6 @@ class TerminalWidget(QWidget):
             QMessageBox.information(self, "Export Successful", f"Session output saved to:\n{file_path}")
         except Exception as e:
             QMessageBox.critical(self, "Export Error", f"Failed to save TXT file:\n{str(e)}")
-
-
 
     def closeEvent(self, event):
         if self.log_file and not self.log_file.closed:

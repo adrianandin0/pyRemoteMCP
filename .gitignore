@@ -1,8 +1,13 @@
-# Python
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
+
+# C extensions
+*.so
+
+# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -22,6 +27,40 @@ share/python-wheels/
 *.egg
 MANIFEST
 
+# PyInstaller / Executables
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit tests / coverage / test scripts
+.pytest_cache/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+tests/
+test_*.py
+scratch/
+
+# Temporary screenshots / media output
+current_ui*.png
+*.png_tmp
+*.tmp
+
+# User data / Local connection configurations
+confCons.xml
+*.xml.bak
+*.log
+*.sqlite
+*.db
+
 # Virtual environments
 .env
 .venv
@@ -31,15 +70,10 @@ ENV/
 env.bak/
 venv.bak/
 
-# User data
-config/
-*.log
-*.sqlite
-*.db
-
-# IDEs
+# IDE and OS metadata
 .idea/
 .vscode/
 *.swp
 *.swo
-tests/
+*~
+.DS_Store

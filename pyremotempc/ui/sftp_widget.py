@@ -3,11 +3,87 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeWidget, QTreeWidgetItem,
     QLineEdit, QPushButton, QLabel, QMessageBox, QFileDialog, QHeaderView, QPlainTextEdit, QGroupBox, QCheckBox
 )
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, QThread, Signal, QObject
 from PySide6.QtGui import QIcon, QTextCursor
-from pyremotempc.engine.sftp_engine import SFTPEngine
+from pyremotempc.engine.file_transfer import UnifiedFileTransferEngine
 from pyremotempc.config.settings import SettingsManager
 from pyremotempc.config.i18n import tr
+from pyremotempc.ui.icon_manager import get_icon
+
+
+class LogBridge(QObject):
+    log_received = Signal(str)
+
+
+class SFTPConnectWorker(QThread):
+    finished_signal = Signal(bool, str, list, str)
+
+    def __init__(self, sftp_engine, remote_path=".", parent=None):
+        super().__init__(parent)
+        self.sftp_engine = sftp_engine
+        self.remote_path = remote_path
+
+    def run(self):
+        try:
+            connected = self.sftp_engine.connect()
+            if not connected:
+                self.finished_signal.emit(False, "", [], "Could not establish SFTP connection.")
+                return
+
+            current_dir = self.sftp_engine.get_current_dir()
+            target_path = self.remote_path if self.remote_path and self.remote_path != "." else (current_dir if current_dir != "." else "/")
+            items = self.sftp_engine.list_remote_dir(target_path)
+            self.finished_signal.emit(True, target_path, items, "")
+        except Exception as e:
+            self.sftp_engine.disconnect()
+            self.finished_signal.emit(False, "", [], str(e))
+
+
+class SFTPListWorker(QThread):
+    finished_signal = Signal(bool, str, list, str)
+
+    def __init__(self, sftp_engine, remote_path, parent=None):
+        super().__init__(parent)
+        self.sftp_engine = sftp_engine
+        self.remote_path = remote_path
+
+    def run(self):
+        try:
+            items = self.sftp_engine.list_remote_dir(self.remote_path)
+            self.finished_signal.emit(True, self.remote_path, items, "")
+        except Exception as e:
+            self.finished_signal.emit(False, self.remote_path, [], str(e))
+
+
+class CustomTreeWidgetItem(QTreeWidgetItem):
+    """
+    Custom QTreeWidgetItem for sorting Name alphabetically and Size numerically,
+    while keeping directories grouped at the top and '..' permanently at row 0.
+    """
+    def __lt__(self, other):
+        tree = self.treeWidget()
+        col = tree.sortColumn() if tree else 0
+        is_asc = True
+        if tree and tree.header():
+            is_asc = (tree.header().sortIndicatorOrder() == Qt.SortOrder.AscendingOrder)
+
+        if self.text(0) == "..":
+            return is_asc
+        if other.text(0) == "..":
+            return not is_asc
+
+        is_dir_self = bool(self.data(1, Qt.ItemDataRole.UserRole))
+        is_dir_other = bool(other.data(1, Qt.ItemDataRole.UserRole))
+
+        if is_dir_self != is_dir_other:
+            return (is_dir_self > is_dir_other) if is_asc else (is_dir_self < is_dir_other)
+
+        if col == 1:
+            size_self = self.data(1, Qt.ItemDataRole.UserRole + 1) or 0
+            size_other = other.data(1, Qt.ItemDataRole.UserRole + 1) or 0
+            return size_self < size_other
+
+        return self.text(col).lower() < other.text(col).lower()
 
 
 class SFTPWidget(QWidget):
@@ -34,11 +110,14 @@ class SFTPWidget(QWidget):
         top_bar.addStretch()
 
         self.btn_toggle_log = QPushButton(tr("sftp_log_btn", self.lang), self)
+        self.btn_toggle_log.setIcon(get_icon("log"))
         self.btn_toggle_log.setCheckable(True)
         self.btn_toggle_log.clicked.connect(self._toggle_log_view)
         top_bar.addWidget(self.btn_toggle_log)
 
-        self.btn_connect = QPushButton(tr("connect_sftp", self.lang), self)
+        self.btn_connect = QPushButton(self)
+        self.btn_connect.setIcon(get_icon("connect"))
+        self.btn_connect.setToolTip(tr("connect_sftp", self.lang))
         self.btn_connect.clicked.connect(self.connect_sftp)
         top_bar.addWidget(self.btn_connect)
 
@@ -47,7 +126,18 @@ class SFTPWidget(QWidget):
         self.chk_show_hidden.toggled.connect(self.refresh_all)
         top_bar.addWidget(self.chk_show_hidden)
 
-        self.btn_refresh = QPushButton(tr("refresh", self.lang), self)
+        FLAT_BTN_STYLE = (
+            "QPushButton { border: none; background: transparent; padding: 2px; } "
+            "QPushButton:hover { background-color: rgba(255, 255, 255, 30); border-radius: 4px; } "
+            "QPushButton:pressed { background-color: rgba(255, 255, 255, 50); border-radius: 4px; }"
+        )
+
+        self.btn_refresh = QPushButton(self)
+        self.btn_refresh.setIcon(get_icon("refresh"))
+        self.btn_refresh.setIconSize(QSize(20, 20))
+        self.btn_refresh.setFixedSize(28, 28)
+        self.btn_refresh.setStyleSheet(FLAT_BTN_STYLE)
+        self.btn_refresh.setToolTip(tr("refresh", self.lang))
         self.btn_refresh.clicked.connect(self.refresh_all)
         top_bar.addWidget(self.btn_refresh)
 
@@ -55,22 +145,32 @@ class SFTPWidget(QWidget):
 
         # Main Vertical Splitter: Files on Top, Diagnostic Log on Bottom
         main_vsplitter = QSplitter(Qt.Orientation.Vertical, self)
+        main_vsplitter.setHandleWidth(1)
+        main_vsplitter.setStyleSheet("QSplitter::handle { background-color: transparent; height: 0px; border: none; image: none; }")
 
         # Dual Panel Splitter (Local vs Remote)
         splitter = QSplitter(Qt.Orientation.Horizontal, main_vsplitter)
+        splitter.setHandleWidth(1)
+        splitter.setStyleSheet("QSplitter::handle { background-color: transparent; width: 0px; border: none; image: none; }")
 
         # --- Left Panel: Local Machine ---
         local_container = QWidget()
         local_vbox = QVBoxLayout(local_container)
         local_vbox.setContentsMargins(0, 0, 0, 0)
-        self.lbl_local_title = QLabel(f"<b>{tr('local_machine', self.lang)}</b>")
+        self.lbl_local_title = QLabel(f"{tr('local_machine', self.lang)}")
+        self.lbl_local_title.setStyleSheet("font-size: 12px; font-weight: normal;")
         local_vbox.addWidget(self.lbl_local_title)
 
         loc_nav = QHBoxLayout()
         self.edit_local_path = QLineEdit(os.path.expanduser("~"))
         self.edit_local_path.returnPressed.connect(self.load_local_dir)
         loc_nav.addWidget(self.edit_local_path)
-        self.btn_loc_up = QPushButton(tr("up", self.lang), self)
+        self.btn_loc_up = QPushButton(self)
+        self.btn_loc_up.setIcon(get_icon("up"))
+        self.btn_loc_up.setIconSize(QSize(20, 20))
+        self.btn_loc_up.setFixedSize(28, 28)
+        self.btn_loc_up.setStyleSheet(FLAT_BTN_STYLE)
+        self.btn_loc_up.setToolTip(tr("up", self.lang))
         self.btn_loc_up.clicked.connect(self._local_up)
         loc_nav.addWidget(self.btn_loc_up)
         local_vbox.addLayout(loc_nav)
@@ -78,6 +178,7 @@ class SFTPWidget(QWidget):
         self.tree_local = QTreeWidget(self)
         self.tree_local.setHeaderLabels([tr("col_name", self.lang), tr("col_size", self.lang), tr("col_perms", self.lang)])
         self.tree_local.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.tree_local.setSortingEnabled(True)
         self.tree_local.itemDoubleClicked.connect(self._on_local_double_click)
         self.tree_local.itemActivated.connect(self._on_local_double_click)
         local_vbox.addWidget(self.tree_local)
@@ -86,34 +187,53 @@ class SFTPWidget(QWidget):
 
         # --- Transfer Action Buttons Panel (Center) ---
         transfer_bar = QVBoxLayout()
+        transfer_bar.setContentsMargins(2, 0, 2, 0)
+        transfer_bar.setSpacing(8)
         transfer_bar.addStretch()
 
-        self.btn_upload = QPushButton(tr("upload", self.lang), self)
+        self.btn_upload = QPushButton(self)
+        self.btn_upload.setIcon(get_icon("forward"))
+        self.btn_upload.setIconSize(QSize(26, 26))
+        self.btn_upload.setFixedSize(36, 36)
+        self.btn_upload.setStyleSheet(FLAT_BTN_STYLE)
+        self.btn_upload.setToolTip(f"{tr('upload', self.lang)} ➔")
         self.btn_upload.clicked.connect(self.upload_selected)
-        transfer_bar.addWidget(self.btn_upload)
+        transfer_bar.addWidget(self.btn_upload, 0, Qt.AlignmentFlag.AlignCenter)
 
-        self.btn_download = QPushButton(tr("download", self.lang), self)
+        self.btn_download = QPushButton(self)
+        self.btn_download.setIcon(get_icon("back"))
+        self.btn_download.setIconSize(QSize(26, 26))
+        self.btn_download.setFixedSize(36, 36)
+        self.btn_download.setStyleSheet(FLAT_BTN_STYLE)
+        self.btn_download.setToolTip(f"⬅ {tr('download', self.lang)}")
         self.btn_download.clicked.connect(self.download_selected)
-        transfer_bar.addWidget(self.btn_download)
+        transfer_bar.addWidget(self.btn_download, 0, Qt.AlignmentFlag.AlignCenter)
 
         transfer_bar.addStretch()
 
         transfer_widget = QWidget()
         transfer_widget.setLayout(transfer_bar)
+        transfer_widget.setFixedWidth(44)
         splitter.addWidget(transfer_widget)
 
         # --- Right Panel: Remote Server ---
         remote_container = QWidget()
         remote_vbox = QVBoxLayout(remote_container)
         remote_vbox.setContentsMargins(0, 0, 0, 0)
-        self.lbl_remote_title = QLabel(f"<b>{tr('remote_host', self.lang)} ({self.node.hostname})</b>")
+        self.lbl_remote_title = QLabel(f"{tr('remote_host', self.lang)} ({self.node.hostname})")
+        self.lbl_remote_title.setStyleSheet("font-size: 12px; font-weight: normal;")
         remote_vbox.addWidget(self.lbl_remote_title)
 
         rem_nav = QHBoxLayout()
         self.edit_remote_path = QLineEdit("/")
         self.edit_remote_path.returnPressed.connect(self.load_remote_dir)
         rem_nav.addWidget(self.edit_remote_path)
-        self.btn_rem_up = QPushButton(tr("up", self.lang), self)
+        self.btn_rem_up = QPushButton(self)
+        self.btn_rem_up.setIcon(get_icon("up"))
+        self.btn_rem_up.setIconSize(QSize(20, 20))
+        self.btn_rem_up.setFixedSize(28, 28)
+        self.btn_rem_up.setStyleSheet(FLAT_BTN_STYLE)
+        self.btn_rem_up.setToolTip(tr("up", self.lang))
         self.btn_rem_up.clicked.connect(self._remote_up)
         rem_nav.addWidget(self.btn_rem_up)
         remote_vbox.addLayout(rem_nav)
@@ -121,11 +241,16 @@ class SFTPWidget(QWidget):
         self.tree_remote = QTreeWidget(self)
         self.tree_remote.setHeaderLabels([tr("col_name", self.lang), tr("col_size", self.lang), tr("col_perms", self.lang)])
         self.tree_remote.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.tree_remote.setSortingEnabled(True)
         self.tree_remote.itemDoubleClicked.connect(self._on_remote_double_click)
         self.tree_remote.itemActivated.connect(self._on_remote_double_click)
         remote_vbox.addWidget(self.tree_remote)
 
         splitter.addWidget(remote_container)
+
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
+        splitter.setStretchFactor(2, 1)
         main_vsplitter.addWidget(splitter)
 
         # --- Bottom Panel: Live Diagnostic Log ---
@@ -144,16 +269,21 @@ class SFTPWidget(QWidget):
 
         layout.addWidget(main_vsplitter)
 
-        # Instantiate SFTPEngine with log_callback
-        self.sftp_engine = SFTPEngine(
+        self.log_bridge = LogBridge(self)
+        self.log_bridge.log_received.connect(self.append_log)
+
+        # Instantiate UnifiedFileTransferEngine with thread-safe log_callback signal
+        self.sftp_engine = UnifiedFileTransferEngine(
             hostname=node.hostname,
             port=node.port,
             username=node.username,
             password=node.password,
-            key_filename=getattr(node, "private_key_file", ""),
+            key_filename=getattr(node, "key_path", "") or getattr(node, "private_key_file", ""),
+            ssh_version=getattr(node, "protocol", "SSH2"),
             ssh_engine=self.ssh_engine,
-            log_callback=self.append_log
+            log_callback=self.log_bridge.log_received.emit
         )
+
 
         # Load local directory right away
         self.load_local_dir()
@@ -169,24 +299,29 @@ class SFTPWidget(QWidget):
         self.group_log.setVisible(self.btn_toggle_log.isChecked())
 
     def connect_sftp(self):
-        """Initializes SFTP connection to the remote host."""
-        try:
-            self.lbl_status.setText(f"{tr('connect_sftp', self.lang)}...")
-            connected = self.sftp_engine.connect()
-            if connected:
-                self.lbl_status.setText(f"SFTP Connected: {self.node.username}@{self.node.hostname}")
-                current_dir = self.sftp_engine.get_current_dir()
-                self.edit_remote_path.setText(current_dir if current_dir != "." else "/")
-                self.load_remote_dir()
-            else:
-                self.lbl_status.setText("SFTP Connection Failed.")
-                self.group_log.setVisible(True)
-                self.btn_toggle_log.setChecked(True)
-        except Exception as e:
-            self.lbl_status.setText("SFTP Connection Error.")
+        """Initializes SFTP connection to the remote host asynchronously."""
+        self.lbl_status.setText(f"{tr('connect_sftp', self.lang)}...")
+        self.btn_connect.setEnabled(False)
+        self.btn_refresh.setEnabled(False)
+
+        self.connect_worker = SFTPConnectWorker(self.sftp_engine, self.edit_remote_path.text().strip(), self)
+        self.connect_worker.finished_signal.connect(self._on_connect_finished)
+        self.connect_worker.start()
+
+    def _on_connect_finished(self, success: bool, target_path: str, items: list, error_msg: str):
+        self.btn_connect.setEnabled(True)
+        self.btn_refresh.setEnabled(True)
+
+        if success:
+            self.lbl_status.setText(f"SFTP Connected: {self.node.username}@{self.node.hostname}")
+            if target_path and target_path != ".":
+                self.edit_remote_path.setText(target_path)
+            self._populate_remote_tree(target_path, items)
+        else:
+            self.lbl_status.setText("SFTP Connection Failed.")
             self.group_log.setVisible(True)
             self.btn_toggle_log.setChecked(True)
-            QMessageBox.critical(self, "SFTP Connection Error", f"SFTP Failed:\n{str(e)}")
+            QMessageBox.critical(self, "SFTP Connection Error", f"SFTP Failed:\n{error_msg}")
 
     def refresh_all(self):
         self.load_local_dir()
@@ -215,9 +350,11 @@ class SFTPWidget(QWidget):
             # Add parent directory ".."
             parent_path = os.path.dirname(path)
             if parent_path != path:
-                parent_item = QTreeWidgetItem(["..", "<DIR>", ""])
+                parent_item = CustomTreeWidgetItem(["..", "<DIR>", ""])
+                parent_item.setIcon(0, get_icon("folder"))
                 parent_item.setData(0, Qt.ItemDataRole.UserRole, parent_path)
                 parent_item.setData(1, Qt.ItemDataRole.UserRole, True)
+                parent_item.setData(1, Qt.ItemDataRole.UserRole + 1, 0)
                 self.tree_local.addTopLevelItem(parent_item)
 
             for entry in entries:
@@ -226,6 +363,7 @@ class SFTPWidget(QWidget):
 
                 full_path = os.path.join(path, entry)
                 is_dir = False
+                size_bytes = 0
                 size_str = "0 B"
 
                 try:
@@ -234,16 +372,19 @@ class SFTPWidget(QWidget):
                         size_str = "<DIR>"
                     else:
                         try:
-                            size_str = f"{os.path.getsize(full_path)} B"
+                            size_bytes = os.path.getsize(full_path)
+                            size_str = f"{size_bytes} B"
                         except Exception:
                             size_str = "<LINK>"
                 except Exception:
                     is_dir = False
                     size_str = "<LINK>"
 
-                item = QTreeWidgetItem([entry, size_str, "rw-r--r--"])
+                item = CustomTreeWidgetItem([entry, size_str, "rw-r--r--"])
+                item.setIcon(0, get_icon("folder") if is_dir else get_icon("log"))
                 item.setData(0, Qt.ItemDataRole.UserRole, full_path)
                 item.setData(1, Qt.ItemDataRole.UserRole, is_dir)
+                item.setData(1, Qt.ItemDataRole.UserRole + 1, size_bytes)
                 self.tree_local.addTopLevelItem(item)
         except Exception as e:
             QMessageBox.warning(self, "Local File Error", f"Cannot read directory:\n{str(e)}")
@@ -253,24 +394,37 @@ class SFTPWidget(QWidget):
             return
 
         path = self.edit_remote_path.text().strip()
-        self.tree_remote.clear()
-        try:
-            items = self.sftp_engine.list_remote_dir(path)
-            for item in items:
-                name = item.get("name", "")
-                if not self.chk_show_hidden.isChecked() and name.startswith('.') and name != "..":
-                    continue
+        self.btn_refresh.setEnabled(False)
 
-                is_dir = item.get("is_dir", False)
-                size_str = "<DIR>" if is_dir else f"{item['size']} B"
-                tree_item = QTreeWidgetItem([name, size_str, item["permissions"]])
-                tree_item.setData(0, Qt.ItemDataRole.UserRole, os.path.join(path, name))
-                tree_item.setData(1, Qt.ItemDataRole.UserRole, is_dir)
-                self.tree_remote.addTopLevelItem(tree_item)
-        except Exception as e:
+        self.list_worker = SFTPListWorker(self.sftp_engine, path, self)
+        self.list_worker.finished_signal.connect(self._on_list_finished)
+        self.list_worker.start()
+
+    def _on_list_finished(self, success: bool, target_path: str, items: list, error_msg: str):
+        self.btn_refresh.setEnabled(True)
+        if success:
+            self._populate_remote_tree(target_path, items)
+        else:
             self.group_log.setVisible(True)
             self.btn_toggle_log.setChecked(True)
-            QMessageBox.warning(self, "Remote SFTP Error", f"Cannot list remote dir:\n{str(e)}")
+            QMessageBox.warning(self, "Remote SFTP Error", f"Cannot list remote dir:\n{error_msg}")
+
+    def _populate_remote_tree(self, path: str, items: list):
+        self.tree_remote.clear()
+        for item in items:
+            name = item.get("name", "")
+            if not self.chk_show_hidden.isChecked() and name.startswith('.') and name != "..":
+                continue
+
+            is_dir = item.get("is_dir", False)
+            size_bytes = item.get("size", 0) if not is_dir else 0
+            size_str = "<DIR>" if is_dir else f"{size_bytes} B"
+            tree_item = CustomTreeWidgetItem([name, size_str, item.get("permissions", "")])
+            tree_item.setIcon(0, get_icon("folder") if is_dir else get_icon("log"))
+            tree_item.setData(0, Qt.ItemDataRole.UserRole, os.path.join(path, name))
+            tree_item.setData(1, Qt.ItemDataRole.UserRole, is_dir)
+            tree_item.setData(1, Qt.ItemDataRole.UserRole + 1, size_bytes)
+            self.tree_remote.addTopLevelItem(tree_item)
 
     def _local_up(self):
         curr = os.path.expanduser(self.edit_local_path.text().strip())

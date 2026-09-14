@@ -38,23 +38,32 @@ class NativePTYSFTPEngine:
         try:
             s = socket.create_connection((self.hostname, self.port), timeout=5)
             s.close()
-            self.is_connected = True
-            self.log("TCP connection successful. Native SFTP ready.")
-            return True
+            self.log("TCP connection successful. Testing native SSH command execution...")
         except Exception as e:
             self.is_connected = False
             self.log(f"TCP connection failed: {str(e)}")
             raise Exception(f"Native SFTP Host unreachable: {str(e)}")
+
+        try:
+            items = self.list_remote_dir(".")
+            self.is_connected = True
+            self.log("Native SFTP/SSH connection verified successfully.")
+            return True
+        except Exception as e:
+            self.is_connected = False
+            self.log(f"Native SFTP/SSH verification failed: {str(e)}")
+            raise Exception(f"Native SFTP failed: {str(e)}")
 
     def get_current_dir(self) -> str:
         return "."
 
     def _get_legacy_options(self) -> List[str]:
         return [
-            "-o", "KexAlgorithms=+diffie-hellman-group1-sha1,diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha1",
-            "-o", "HostKeyAlgorithms=+ssh-rsa",
-            "-o", "Ciphers=+aes128-cbc,3des-cbc,aes192-cbc,aes256-cbc",
-            "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa"
+            "-o", "KexAlgorithms=+diffie-hellman-group1-sha1,diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha1,diffie-hellman-group14-sha256",
+            "-o", "HostKeyAlgorithms=+ssh-rsa,rsa-sha2-256,rsa-sha2-512,ssh-ed25519",
+            "-o", "Ciphers=aes128-cbc,3des-cbc,aes192-cbc,aes256-cbc,aes128-ctr,aes192-ctr,aes256-ctr",
+            "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa,rsa-sha2-256,rsa-sha2-512",
+            "-o", "ConnectTimeout=10"
         ]
 
     def list_remote_dir(self, remote_path: str = ".") -> List[Dict[str, Any]]:
@@ -324,7 +333,21 @@ class SFTPEngine:
                 except Exception as shell_err:
                     self.log(f"Shell engine reuse notice: {str(shell_err)}")
 
-        # 2. Try creating fresh Paramiko Transport
+        # 2. If SSHEngine is active via NativePTYSSHEngine, use Native OpenSSH SFTP Engine directly
+        if self.ssh_engine and getattr(self.ssh_engine, "native_engine", None) and getattr(self.ssh_engine.native_engine, "is_connected", False):
+            self.log("Active SSH terminal is using Native PTY. Using Native OpenSSH SFTP Engine directly...")
+            try:
+                self.native_sftp = self._get_native_sftp()
+                connected = self.native_sftp.connect()
+                self.is_connected = connected
+                return connected
+            except Exception as native_err:
+                self.is_connected = False
+                self.log(f"Native SFTP Engine failed: {str(native_err)}")
+                raise Exception(f"Native SFTP failed: {str(native_err)}")
+
+        # 3. Try creating fresh Paramiko Transport
+        paramiko_err = None
         try:
             self.log("Establishing dedicated Paramiko Transport socket...")
             sock = socket.create_connection((self.hostname, self.port), timeout=10)
@@ -345,18 +368,24 @@ class SFTPEngine:
             self.log("Dedicated Paramiko SFTP session established successfully.")
             return True
         except Exception as e:
-            self.log(f"Paramiko SFTP Connection Error: {str(e)}")
+            paramiko_err = str(e)
+            self.log(f"Paramiko SFTP Connection Error: {paramiko_err}")
             self.log("Switching seamlessly to Native OpenSSH SFTP / SCP Fallback...")
             self.disconnect()
             
             # Since paramiko failed completely, we fallback to Native SFTP.
-            self.native_sftp = NativePTYSFTPEngine(
-                hostname=self.hostname, port=self.port, username=self.username, password=self.password,
-                key_filename=self.key_filename, log_callback=self.log_callback
-            )
-            connected = self.native_sftp.connect()
-            self.is_connected = connected
-            return connected
+            try:
+                self.native_sftp = NativePTYSFTPEngine(
+                    hostname=self.hostname, port=self.port, username=self.username, password=self.password,
+                    key_filename=self.key_filename, log_callback=self.log_callback
+                )
+                connected = self.native_sftp.connect()
+                self.is_connected = connected
+                return connected
+            except Exception as native_err:
+                self.is_connected = False
+                self.log(f"Native SFTP Fallback failed: {str(native_err)}")
+                raise Exception(f"SFTP failed. Paramiko: {paramiko_err} | Native: {str(native_err)}")
 
     def get_current_dir(self) -> str:
         if self.sftp:

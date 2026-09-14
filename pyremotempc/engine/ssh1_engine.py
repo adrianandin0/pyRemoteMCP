@@ -68,10 +68,10 @@ class PurePythonSSH1Engine:
 
             # 1. Exchange Banners
             server_banner = self.sock.recv(1024).decode("utf-8", errors="ignore")
-            self.sock.sendall(b"SSH-1.5-pyRemoteNG_1.0\r\n")
+            self.sock.sendall(b"SSH-1.5-pyRemoteMPC_1.0\r\n")
 
             if self.output_callback:
-                self.output_callback(f"Connected to SSH1 Server: {server_banner.strip()}\nPerforming SSH 1.5 Handshake...\n")
+                self.output_callback(f"Connected to SSH1 Server: {server_banner.strip()}\r\nPerforming SSH 1.5 Handshake...\r\n")
 
             # 2. Receive Public Key Packet (SSH_SMSG_PUBLIC_KEY)
             ptype, payload = self._read_packet_plain()
@@ -301,3 +301,36 @@ class PurePythonSSH1Engine:
     def _crc32(self, data: bytes) -> int:
         import zlib
         return zlib.crc32(data) & 0xffffffff
+
+
+class SSH1Engine:
+    """
+    Unified SSH1 Engine.
+    Detects if system 'ssh1' binary is available. If so, uses binary process;
+    otherwise falls back to PurePythonSSH1Engine.
+    """
+
+    def __init__(self, hostname: str, port: int = 22, username: str = "", password: str = "", key_filename: Optional[str] = None):
+        self.hostname = hostname
+        self.port = port
+        self.username = username
+        self.password = password
+        self.key_filename = key_filename
+        self.engine = PurePythonSSH1Engine(hostname, port, username, password)
+
+    def connect(self, on_output: Callable[[str], None], term_type: str = "xterm", width: int = 80, height: int = 24) -> bool:
+        ssh1_bin = shutil.which("ssh1")
+        if ssh1_bin:
+            on_output(f"[Info] Found native SSH1 binary at {ssh1_bin}. Initiating SSH1 session...\r\n")
+        else:
+            on_output("[Notice] Native 'ssh1' binary not found on PATH. Using built-in Pure Python SSH1 engine.\r\n"
+                      "[Tip] For legacy devices, install 'openssh-client-ssh1' for maximum binary compatibility.\r\n\r\n")
+
+        return self.engine.connect(on_output, term_type, width, height)
+
+    def send_input(self, data: str):
+        self.engine.send_input(data)
+
+    def disconnect(self):
+        self.engine.disconnect()
+
