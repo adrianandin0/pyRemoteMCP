@@ -204,9 +204,9 @@ class NativePTYSSHEngine:
         password_sent = False
         while not self._stop_event.is_set() and self.master_fd is not None:
             try:
-                r, _, _ = select.select([self.master_fd], [], [], 0.05)
+                r, _, _ = select.select([self.master_fd], [], [], 0.005)
                 if self.master_fd in r:
-                    data = os.read(self.master_fd, 4096)
+                    data = os.read(self.master_fd, 8192)
                     if data:
                         text = data.decode("utf-8", errors="replace")
                         if self.output_callback:
@@ -214,7 +214,7 @@ class NativePTYSSHEngine:
 
                         # Auto-send password if prompted and sshpass was not used
                         if not password_sent and self.password and ("password:" in text.lower() or "password :" in text.lower()):
-                            time.sleep(0.1)
+                            time.sleep(0.05)
                             os.write(self.master_fd, (self.password + "\n").encode("utf-8"))
                             password_sent = True
                     else:
@@ -369,14 +369,15 @@ class SSHEngine:
         while not self._stop_event.is_set() and self.channel:
             try:
                 if self.channel.recv_ready():
-                    data = self.channel.recv(4096)
+                    data = self.channel.recv(8192)
                     if data:
                         text = data.decode("utf-8", errors="replace")
                         if self.output_callback:
                             self.output_callback(text)
+                        continue
                     else:
                         break
-                time.sleep(0.02)
+                time.sleep(0.005)
             except Exception:
                 break
 

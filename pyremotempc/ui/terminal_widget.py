@@ -3,6 +3,7 @@ import os
 import re
 import datetime
 from typing import Optional
+import html
 from collections import defaultdict
 import pyte
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QPlainTextEdit, QFileDialog, QMessageBox
@@ -28,6 +29,152 @@ THEME_STYLES = {
     "Amber": "QPlainTextEdit { background-color: #120c02; color: #ffb000; selection-background-color: #664400; }",
     "Light": "QPlainTextEdit { background-color: #f5f5f5; color: #111111; selection-background-color: #b3d7ff; }",
 }
+
+THEME_DEFAULTS = {
+    "Dark": ("#d4d4d4", "#1e1e1e"),
+    "Classic Green": ("#00ff66", "#0c100c"),
+    "Amber": ("#ffb000", "#120c02"),
+    "Light": ("#111111", "#f5f5f5"),
+}
+
+COLOR_PALETTE = {
+    'black': '#1e1e1e',
+    'red': '#cd3131',
+    'green': '#0dbc79',
+    'brown': '#e5e510',
+    'yellow': '#e5e510',
+    'blue': '#2472c8',
+    'magenta': '#bc3fbc',
+    'cyan': '#11a8cd',
+    'white': '#e5e5e5',
+    'bright_black': '#666666',
+    'bright_red': '#f14c4c',
+    'bright_green': '#23d18b',
+    'bright_brown': '#f5f543',
+    'bright_yellow': '#f5f543',
+    'bright_blue': '#3b8ee0',
+    'bright_magenta': '#d670d6',
+    'bright_cyan': '#29b8db',
+    'bright_white': '#ffffff',
+}
+
+
+def resolve_color(c_val, is_bright=False, default_color=None):
+    if not c_val or c_val == 'default':
+        return default_color
+    if is_bright and isinstance(c_val, str) and c_val in COLOR_PALETTE:
+        bright_key = 'bright_' + c_val
+        if bright_key in COLOR_PALETTE:
+            return COLOR_PALETTE[bright_key]
+    if isinstance(c_val, str) and c_val in COLOR_PALETTE:
+        return COLOR_PALETTE[c_val]
+    if isinstance(c_val, str) and len(c_val) == 6 and all(ch in '0123456789abcdefABCDEF' for ch in c_val):
+        return '#' + c_val
+    return default_color
+
+
+def row_to_html(row, columns: int, default_fg: str = '#d4d4d4', default_bg: str = '#1e1e1e', cursor_x: int = -1) -> str:
+    """Converts a pyte screen/history row into styled HTML paragraph block with full ANSI/256/TrueColor support and real-time block cursor."""
+    spans = []
+    curr_attr = None
+    curr_text = []
+
+    for col in range(columns):
+        if isinstance(row, (dict, defaultdict)):
+            char = row.get(col)
+        elif isinstance(row, (list, tuple)):
+            char = row[col] if col < len(row) else None
+        else:
+            char = None
+
+        ch_data = char.data if char else ' '
+
+        fg = char.fg if char else 'default'
+        bg = char.bg if char else 'default'
+        bold = getattr(char, 'bold', False) if char else False
+        italics = getattr(char, 'italics', False) if char else False
+        underscore = getattr(char, 'underscore', False) if char else False
+        reverse = getattr(char, 'reverse', False) if char else False
+
+        is_cursor = (col == cursor_x)
+
+        if reverse:
+            fg, bg = bg, fg
+            if fg == 'default':
+                fg = 'black'
+            if bg == 'default':
+                bg = 'yellow'
+
+        fg_hex = resolve_color(fg, is_bright=bold, default_color=default_fg)
+        bg_hex = resolve_color(bg, is_bright=False, default_color=None)
+
+        if is_cursor:
+            fg_hex = default_bg
+            bg_hex = '#ffffff' if default_bg != '#f5f5f5' else '#000000'
+
+        attr_key = (fg_hex, bg_hex, bold, italics, underscore, is_cursor)
+
+        if attr_key != curr_attr:
+            if curr_text:
+                text_str = html.escape(''.join(curr_text))
+                if curr_attr:
+                    c_fg, c_bg, c_bold, c_ital, c_und, c_cur = curr_attr
+                    if c_cur:
+                        text_str = text_str.replace(' ', '&nbsp;')
+                    styles = []
+                    if c_fg and c_fg != default_fg:
+                        styles.append(f'color:{c_fg}')
+                    if c_bg and c_bg != default_bg:
+                        styles.append(f'background-color:{c_bg}')
+                    if c_bold:
+                        styles.append('font-weight:bold')
+                    if c_ital:
+                        styles.append('font-style:italic')
+                    if c_und:
+                        styles.append('text-decoration:underline')
+
+                    if styles:
+                        style_str = ";".join(styles)
+                        spans.append(f'<span style="{style_str}">{text_str}</span>')
+                    else:
+                        spans.append(text_str)
+                else:
+                    spans.append(text_str)
+                curr_text = []
+            curr_attr = attr_key
+
+        curr_text.append(ch_data)
+
+    if curr_text:
+        text_str = html.escape(''.join(curr_text))
+        if curr_attr:
+            c_fg, c_bg, c_bold, c_ital, c_und, c_cur = curr_attr
+            if c_cur:
+                text_str = text_str.replace(' ', '&nbsp;')
+            styles = []
+            if c_fg and c_fg != default_fg:
+                styles.append(f'color:{c_fg}')
+            if c_bg and c_bg != default_bg:
+                styles.append(f'background-color:{c_bg}')
+            if c_bold:
+                styles.append('font-weight:bold')
+            if c_ital:
+                styles.append('font-style:italic')
+            if c_und:
+                styles.append('text-decoration:underline')
+
+            if styles:
+                style_str = ";".join(styles)
+                spans.append(f'<span style="{style_str}">{text_str}</span>')
+            else:
+                spans.append(text_str)
+        else:
+            spans.append(text_str)
+
+    line_content = ''.join(spans).rstrip()
+    if not line_content:
+        line_content = '&nbsp;'
+    return f'<p style="margin:0px; padding:0px; -qt-block-indent:0; text-indent:0px; white-space:pre;">{line_content}</p>'
 
 
 class OutputBridge(QObject):
@@ -407,7 +554,7 @@ class TerminalWidget(QWidget):
         self.append_text(f"Connecting to {self.node.hostname}:{self.node.port} via {self.node.protocol}...\r\n")
         connected = self.engine.connect(
             on_output=self.bridge.output_received.emit,
-            term_type="xterm-256color",
+            term_type="xterm",
             width=self.screen.columns,
             height=self.screen.lines
         )
@@ -417,45 +564,51 @@ class TerminalWidget(QWidget):
     def append_text(self, text: str):
         """Feeds output into pyte VT100 screen emulator and updates QPlainTextEdit screen."""
         term_debug(f"RECV: {repr(text)}")
-        self.stream.feed(text)
+        if text:
+            self.stream.feed(text)
 
-        # Clear scrollback history when clear command (\x1b[2J or \x1b[3J) is received
-        if "\x1b[2J" in text or "\x1b[3J" in text:
-            self.screen.history.top.clear()
+            # Clear scrollback history when clear command (\x1b[2J or \x1b[3J) is received
+            if "\x1b[2J" in text or "\x1b[3J" in text:
+                self.screen.history.top.clear()
 
-        # Extract history lines and active screen display lines
-        history_lines = [
-            "".join(char.data for char in row.values()).rstrip()
-            for row in self.screen.history.top
-        ]
-        screen_lines = [line.rstrip() for line in self.screen.display]
+        default_fg, default_bg = THEME_DEFAULTS.get(self.settings.theme, THEME_DEFAULTS["Dark"])
+
+        cursor_y = self.screen.cursor.y
+        cursor_x = self.screen.cursor.x
+
+        p_list = []
+        for r in self.screen.history.top:
+            p_list.append(row_to_html(r, self.screen.columns, default_fg, default_bg, cursor_x=-1))
 
         # Trim trailing blank lines on active screen if cursor is above them
-        cursor_y = self.screen.cursor.y
         max_active_row = cursor_y
-        for r_idx in range(len(screen_lines) - 1, cursor_y, -1):
-            if screen_lines[r_idx]:
+        for r_idx in range(self.screen.lines - 1, cursor_y, -1):
+            row_str = "".join(self.screen.buffer[r_idx][c].data for c in range(self.screen.columns)).rstrip()
+            if row_str:
                 max_active_row = r_idx
                 break
 
-        active_screen_lines = screen_lines[:max_active_row + 1]
-        full_lines = history_lines + active_screen_lines
-        full_text = "\n".join(full_lines)
+        for r_idx in range(max_active_row + 1):
+            c_x = cursor_x if r_idx == cursor_y else -1
+            p_list.append(row_to_html(self.screen.buffer[r_idx], self.screen.columns, default_fg, default_bg, cursor_x=c_x))
 
-        self.text_edit.setPlainText(full_text)
+        full_html = "".join(p_list)
+        self.text_edit.document().setHtml(full_html)
 
         # Position text cursor to match pyte virtual cursor coordinates
-        cursor_line_idx = len(history_lines) + cursor_y
+        history_count = len(self.screen.history.top)
+        cursor_line_idx = history_count + cursor_y
         doc = self.text_edit.document()
         block = doc.findBlockByNumber(min(cursor_line_idx, max(0, doc.blockCount() - 1)))
 
-        char_col = min(self.screen.cursor.x, max(0, block.length() - 1))
+        char_col = min(cursor_x, max(0, block.length() - 1))
         pos = block.position() + char_col
 
         tc = self.text_edit.textCursor()
         tc.setPosition(pos)
         self.text_edit.setTextCursor(tc)
         self.text_edit.ensureCursorVisible()
+        self.text_edit.viewport().update()
 
         # Write raw received text to session log file if enabled
         if self.log_file and not self.log_file.closed:

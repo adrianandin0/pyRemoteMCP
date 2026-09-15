@@ -35,9 +35,10 @@ class ConnectionNode:
     rdp_cert_ignore: bool = True  # Ignore untrusted SSL/TLS certificates
     rdp_cert_path: str = ""  # Path to custom SSL Certificate / CA bundle
     redirect_sound: str = "BringToThisComputer"
-    redirect_drives: bool = False
+    redirect_drives: bool = True
     redirect_printers: bool = False
     redirect_clipboard: bool = True
+    rdp_shared_folder: str = ""  # Optional per-connection local folder path override
 
     # VNC Specific
     vnc_engine_type: str = "Auto"  # Auto, Native, System

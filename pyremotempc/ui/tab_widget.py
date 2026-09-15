@@ -50,13 +50,15 @@ def format_tab_title(node: ConnectionNode) -> str:
 
 
 class X11EmbedWidget(QWidget):
-    """A QWidget that resizes its foreign X11 children when it gets resized."""
+    """A QWidget container for embedded X11 protocol client windows."""
     
     # Signal emitted when the widget size settles (after a resize debounce)
     size_settled = Signal(int, int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_NativeWindow, True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._resize_timer = QTimer(self)
         self._resize_timer.setSingleShot(True)
         self._resize_timer.timeout.connect(self._on_resize_settled)
@@ -67,38 +69,6 @@ class X11EmbedWidget(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._resize_timer.start(500)  # 500ms debounce
-        try:
-            from ctypes import cdll, c_void_p, c_ulong, c_int, c_uint, POINTER, byref, c_char_p
-            x11 = cdll.LoadLibrary("libX11.so.6")
-            
-            x11.XOpenDisplay.argtypes = [c_char_p]
-            x11.XOpenDisplay.restype = c_void_p
-            x11.XCloseDisplay.argtypes = [c_void_p]
-            x11.XQueryTree.argtypes = [c_void_p, c_ulong, POINTER(c_ulong), POINTER(c_ulong), POINTER(POINTER(c_ulong)), POINTER(c_uint)]
-            x11.XQueryTree.restype = c_int
-            x11.XMoveResizeWindow.argtypes = [c_void_p, c_ulong, c_int, c_int, c_uint, c_uint]
-            x11.XFree.argtypes = [c_void_p]
-            
-            display = x11.XOpenDisplay(None)
-            if not display:
-                return
-            
-            def resize_tree(win):
-                root_r = c_ulong()
-                parent_r = c_ulong()
-                children_r = POINTER(c_ulong)()
-                nchildren_r = c_uint()
-                if x11.XQueryTree(display, win, byref(root_r), byref(parent_r), byref(children_r), byref(nchildren_r)) != 0:
-                    for i in range(nchildren_r.value):
-                        child = children_r[i]
-                        x11.XMoveResizeWindow(display, child, 0, 0, self.width(), self.height())
-                        resize_tree(child)
-                    x11.XFree(children_r)
-
-            resize_tree(c_ulong(int(self.winId())))
-            x11.XCloseDisplay(display)
-        except Exception:
-            pass
 
 
 class SessionTabWidget(QTabWidget):
@@ -299,6 +269,10 @@ class SessionTabWidget(QTabWidget):
         rdp_bridge = OutputBridge(rdp_container)
         rdp_bridge.output_received.connect(append_rdp_log_safe)
 
+        shared_folder = getattr(node, "rdp_shared_folder", "") or self.settings.rdp_shared_folder
+        redirect_clipboard = getattr(node, "redirect_clipboard", self.settings.rdp_enable_clipboard)
+        redirect_drives = getattr(node, "redirect_drives", self.settings.rdp_enable_drive_redirection)
+
         rdp_engine = RDPEngine(
             hostname=node.hostname,
             port=node.port,
@@ -308,7 +282,9 @@ class SessionTabWidget(QTabWidget):
             rdp_security=getattr(node, "rdp_security", "Auto"),
             rdp_cert_ignore=getattr(node, "rdp_cert_ignore", True),
             rdp_cert_path=getattr(node, "rdp_cert_path", ""),
-            redirect_drives=getattr(node, "redirect_drives", False)
+            redirect_drives=redirect_drives,
+            redirect_clipboard=redirect_clipboard,
+            shared_folder=shared_folder
         )
 
         rdp_container.rdp_engine = rdp_engine
@@ -345,7 +321,7 @@ class SessionTabWidget(QTabWidget):
 
         idx = self.addTab(rdp_container, get_node_icon(node), format_tab_title(node))
         self.setCurrentIndex(idx)
-        start_rdp()
+        QTimer.singleShot(150, start_rdp)
 
     def _open_vnc_session(self, node: ConnectionNode):
         lang = self.settings.language
@@ -419,6 +395,7 @@ class SessionTabWidget(QTabWidget):
 
         vnc_widget.log_emitted.connect(append_vnc_log_safe)
 
+        vnc_widget.node = node
         vnc_engine = VNCEngine(hostname=node.hostname, port=node.port if node.port else 5900, password=node.password)
         vnc_container.vnc_engine = vnc_engine
         vnc_container.vnc_widget = vnc_widget

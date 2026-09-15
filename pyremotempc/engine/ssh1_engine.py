@@ -145,7 +145,7 @@ class PurePythonSSH1Engine:
     def _read_loop(self):
         while not self._stop_event.is_set() and self.sock:
             try:
-                r, _, _ = select.select([self.sock], [], [], 0.05)
+                r, _, _ = select.select([self.sock], [], [], 0.005)
                 if self.sock in r:
                     ptype, payload = self._read_packet_encrypted()
                     if ptype in (SSH_SMSG_STDOUT_DATA, SSH_SMSG_STDERR_DATA):

@@ -27,8 +27,9 @@ class RDPEngine:
 
     def __init__(self, hostname: str, port: int = 3389, username: str = "", password: str = "",
                  domain: str = "", rdp_security: str = "Auto", rdp_cert_ignore: bool = True,
-                 rdp_cert_path: str = "", redirect_drives: bool = False,
-                 redirect_clipboard: bool = True, redirect_sound: bool = True):
+                 rdp_cert_path: str = "", redirect_drives: bool = True,
+                 redirect_clipboard: bool = True, redirect_sound: bool = True,
+                 shared_folder: str = ""):
         self.hostname = hostname
         self.port = port
         self.username = username
@@ -40,6 +41,7 @@ class RDPEngine:
         self.redirect_drives = redirect_drives
         self.redirect_clipboard = redirect_clipboard
         self.redirect_sound = redirect_sound
+        self.shared_folder = shared_folder
 
         self.process: Optional[subprocess.Popen] = None
         self._read_thread: Optional[threading.Thread] = None
@@ -53,6 +55,7 @@ class RDPEngine:
 
         if client_type == "freerdp":
             cmd = [exe_path, f"/v:{self.hostname}:{self.port}"]
+            cmd.append("/client-hostname:pyRemoteMPC")
             if self.username:
                 cmd.append(f"/u:{self.username}")
             if self.password:
@@ -75,10 +78,21 @@ class RDPEngine:
 
             if self.redirect_clipboard:
                 cmd.append("+clipboard")
+            else:
+                cmd.append("-clipboard")
+
             if self.redirect_sound:
                 cmd.append("/sound")
+
             if self.redirect_drives:
-                cmd.append("/drive:home,$HOME")
+                folder_to_share = self.shared_folder
+                if not folder_to_share or not os.path.exists(folder_to_share):
+                    folder_to_share = os.path.expanduser("~/RDP_Shared")
+                try:
+                    os.makedirs(folder_to_share, exist_ok=True)
+                except Exception:
+                    pass
+                cmd.append(f"/drive:Shared,{folder_to_share}")
 
             if self.rdp_cert_path and os.path.exists(self.rdp_cert_path):
                 cmd.append(f"/cert:file:{self.rdp_cert_path}")

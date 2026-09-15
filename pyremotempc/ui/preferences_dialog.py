@@ -35,6 +35,7 @@ class PreferencesDialog(QDialog):
         # Tabs
         self._init_general_tab()
         self._init_terminal_logging_tab()
+        self._init_rdp_tab()
         self._init_security_tab()
 
         # Bottom OK / Cancel Buttons
@@ -170,12 +171,60 @@ class PreferencesDialog(QDialog):
         layout.addStretch()
         self.tab_widget.addTab(tab, get_icon("security"), "Security")
 
+    def _init_rdp_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        group_rdp = QGroupBox("RDP && Remote Desktop Settings", tab)
+        form_rdp = QFormLayout(group_rdp)
+
+        self.chk_rdp_clipboard = QCheckBox("Enable Clipboard Sharing (+clipboard)", group_rdp)
+        self.chk_rdp_clipboard.setChecked(self.settings.rdp_enable_clipboard)
+        form_rdp.addRow(self.chk_rdp_clipboard)
+
+        self.chk_rdp_drive = QCheckBox("Map Local Shared Directory as Network Drive (/drive:Shared)", group_rdp)
+        self.chk_rdp_drive.setChecked(self.settings.rdp_enable_drive_redirection)
+        form_rdp.addRow(self.chk_rdp_drive)
+
+        folder_layout = QHBoxLayout()
+        self.edit_rdp_folder = QLineEdit(group_rdp)
+        self.edit_rdp_folder.setText(self.settings.get("rdp_shared_folder", os.path.expanduser("~/RDP_Shared")))
+        folder_layout.addWidget(self.edit_rdp_folder)
+
+        btn_browse_rdp = QPushButton("Browse...", group_rdp)
+        btn_browse_rdp.setIcon(get_icon("folder"))
+        btn_browse_rdp.clicked.connect(self._browse_rdp_folder)
+        folder_layout.addWidget(btn_browse_rdp)
+
+        form_rdp.addRow("RDP Shared Local Folder:", folder_layout)
+
+        lbl_info = QLabel(
+            "📁 Shared Drive Mapping: The configured folder will be automatically mapped as a network drive "
+            "('\\\\tsclient\\Shared' or drive letter) inside all remote Windows RDP sessions.\n"
+            "📋 Clipboard: Allows seamless copy && paste of text and data between Linux and RDP servers.",
+            group_rdp
+        )
+        lbl_info.setWordWrap(True)
+        lbl_info.setStyleSheet("color: #3b82f6; font-size: 11px; font-weight: normal; margin-top: 8px;")
+        form_rdp.addRow(lbl_info)
+
+        layout.addWidget(group_rdp)
+        layout.addStretch()
+        self.tab_widget.addTab(tab, get_icon("windows"), "RDP && Drives")
+
     def _browse_log_dir(self):
         directory = QFileDialog.getExistingDirectory(
             self, "Select Log Output Directory", os.path.expanduser(self.edit_log_dir.text())
         )
         if directory:
             self.edit_log_dir.setText(directory)
+
+    def _browse_rdp_folder(self):
+        directory = QFileDialog.getExistingDirectory(
+            self, "Select RDP Shared Directory", os.path.expanduser(self.edit_rdp_folder.text())
+        )
+        if directory:
+            self.edit_rdp_folder.setText(directory)
 
     def _change_master_key(self):
         curr_pass = self.edit_curr_pass.text()
@@ -210,4 +259,8 @@ class PreferencesDialog(QDialog):
         self.settings.set("enable_logging", self.chk_logging.isChecked())
         self.settings.set("log_directory", self.edit_log_dir.text().strip())
         self.settings.set("scrollback_lines", self.spin_scrollback.value())
+        self.settings.set("rdp_enable_clipboard", self.chk_rdp_clipboard.isChecked())
+        self.settings.set("rdp_enable_drive_redirection", self.chk_rdp_drive.isChecked())
+        self.settings.set("rdp_shared_folder", self.edit_rdp_folder.text().strip())
         self.accept()
+

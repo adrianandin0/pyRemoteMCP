@@ -158,9 +158,30 @@ class PropertyGridWidget(QWidget):
         cert_layout.addWidget(self.btn_browse_cert)
         self.form_layout.addRow("Custom CA File:", cert_layout)
 
-        self.chk_redirect_drives = QCheckBox("Redirect $HOME Drive")
+        self.chk_redirect_clipboard = QCheckBox("Redirect Clipboard (+clipboard)")
+        self.chk_redirect_clipboard.setChecked(True)
+        self.chk_redirect_clipboard.toggled.connect(self._on_field_edited)
+        self.form_layout.addRow("RDP Clipboard:", self.chk_redirect_clipboard)
+
+        self.chk_redirect_drives = QCheckBox("Redirect Network Drive")
+        self.chk_redirect_drives.setChecked(True)
         self.chk_redirect_drives.toggled.connect(self._on_field_edited)
-        self.form_layout.addRow("RDP Drives:", self.chk_redirect_drives)
+        self.form_layout.addRow("RDP Drive:", self.chk_redirect_drives)
+
+        self.txt_rdp_shared_folder = QLineEdit()
+        self.txt_rdp_shared_folder.setMinimumWidth(30)
+        self.txt_rdp_shared_folder.setPlaceholderText("Global default (~/RDP_Shared)")
+        self.txt_rdp_shared_folder.textChanged.connect(self._on_field_edited)
+        self.btn_browse_rdp_folder = QPushButton("...")
+        self.btn_browse_rdp_folder.setFixedWidth(26)
+        self.btn_browse_rdp_folder.clicked.connect(self._on_browse_rdp_folder)
+
+        folder_layout = QHBoxLayout()
+        folder_layout.setContentsMargins(0, 0, 0, 0)
+        folder_layout.setSpacing(2)
+        folder_layout.addWidget(self.txt_rdp_shared_folder)
+        folder_layout.addWidget(self.btn_browse_rdp_folder)
+        self.form_layout.addRow("RDP Shared Folder:", folder_layout)
 
         # VNC Specific Settings
         self.cmb_vnc_engine = QComboBox()
@@ -200,7 +221,9 @@ class PropertyGridWidget(QWidget):
         self.cmb_rdp_sec.setCurrentText(getattr(node, "rdp_security", "Auto"))
         self.chk_rdp_cert_ignore.setChecked(getattr(node, "rdp_cert_ignore", True))
         self.txt_rdp_cert_path.setText(getattr(node, "rdp_cert_path", ""))
-        self.chk_redirect_drives.setChecked(getattr(node, "redirect_drives", False))
+        self.chk_redirect_clipboard.setChecked(getattr(node, "redirect_clipboard", True))
+        self.chk_redirect_drives.setChecked(getattr(node, "redirect_drives", True))
+        self.txt_rdp_shared_folder.setText(getattr(node, "rdp_shared_folder", ""))
         self.cmb_vnc_engine.setCurrentText(getattr(node, "vnc_engine_type", "Auto"))
         self.cmb_vnc_sec.setCurrentText(getattr(node, "vnc_sec_type", "Auto"))
 
@@ -268,6 +291,16 @@ class PropertyGridWidget(QWidget):
             self.txt_rdp_cert_path.setText(file_path)
             self._on_field_edited()
 
+    def _on_browse_rdp_folder(self):
+        if self.loading or not self.current_node:
+            return
+        directory = QFileDialog.getExistingDirectory(
+            self, "Select RDP Shared Directory", os.path.expanduser(self.txt_rdp_shared_folder.text() or "~")
+        )
+        if directory:
+            self.txt_rdp_shared_folder.setText(directory)
+            self._on_field_edited()
+
     def _on_field_edited(self):
         if self.loading or not self.current_node:
             return
@@ -286,8 +319,9 @@ class PropertyGridWidget(QWidget):
         self.current_node.rdp_security = self.cmb_rdp_sec.currentText()
         self.current_node.rdp_cert_ignore = self.chk_rdp_cert_ignore.isChecked()
         self.current_node.rdp_cert_path = self.txt_rdp_cert_path.text()
+        self.current_node.redirect_clipboard = self.chk_redirect_clipboard.isChecked()
         self.current_node.redirect_drives = self.chk_redirect_drives.isChecked()
+        self.current_node.rdp_shared_folder = self.txt_rdp_shared_folder.text()
         self.current_node.vnc_engine_type = self.cmb_vnc_engine.currentText()
         self.current_node.vnc_sec_type = self.cmb_vnc_sec.currentText()
-
         self.property_changed.emit(self.current_node)

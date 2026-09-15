@@ -101,9 +101,9 @@ class TelnetEngine:
         buf = bytearray()
         while not self._stop_event.is_set() and self.sock:
             try:
-                r, _, _ = select.select([self.sock], [], [], 0.05)
+                r, _, _ = select.select([self.sock], [], [], 0.005)
                 if self.sock in r:
-                    chunk = self.sock.recv(4096)
+                    chunk = self.sock.recv(8192)
                     if not chunk:
                         break
                     buf.extend(chunk)

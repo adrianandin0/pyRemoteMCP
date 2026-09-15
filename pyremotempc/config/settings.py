@@ -17,6 +17,9 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "sidebar_splitter_sizes": [670, 330],
     "window_geometry": "",
     "window_state": "",
+    "rdp_shared_folder": os.path.expanduser("~/RDP_Shared"),
+    "rdp_enable_clipboard": True,
+    "rdp_enable_drive_redirection": True,
 }
 
 
@@ -99,3 +102,22 @@ class SettingsManager:
     @property
     def sidebar_splitter_sizes(self) -> list:
         return list(self.get("sidebar_splitter_sizes", [670, 330]))
+
+    @property
+    def rdp_shared_folder(self) -> str:
+        path = str(self.get("rdp_shared_folder", os.path.expanduser("~/RDP_Shared")))
+        expanded = os.path.expanduser(path)
+        try:
+            os.makedirs(expanded, exist_ok=True)
+        except Exception:
+            pass
+        return expanded
+
+    @property
+    def rdp_enable_clipboard(self) -> bool:
+        return bool(self.get("rdp_enable_clipboard", True))
+
+    @property
+    def rdp_enable_drive_redirection(self) -> bool:
+        return bool(self.get("rdp_enable_drive_redirection", True))
+

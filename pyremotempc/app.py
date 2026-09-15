@@ -1,8 +1,12 @@
 import sys
 import os
 
-# Force X11 backend (xcb) so XEmbed (xfreerdp /parent) works under Wayland.
-# Without this, xfreerdp cannot embed into the PySide6 window natively on Wayland.
+# Ensure project root directory is in sys.path
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# Force Qt X11 (xcb) platform plugin for 100% reliable XEmbed container window embedding (FreeRDP / RDP)
 os.environ["QT_QPA_PLATFORM"] = "xcb"
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QFont

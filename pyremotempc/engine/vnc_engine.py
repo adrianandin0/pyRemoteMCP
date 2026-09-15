@@ -120,7 +120,7 @@ class VNCEngine:
                 env=env
             )
 
-            if win_id and self.process:
+            if win_id and self.process and client_type != "vncviewer":
                 self._reparent_x11_window(self.process.pid, win_id, initial_wins, width, height)
 
             self._stop_event.clear()
