@@ -42,31 +42,47 @@ install_system_dependencies() {
     info "Installing system dependencies for ${DISTRO_ID}..."
     
     if command -v apt-get >/dev/null 2>&1; then
-        info "Using APT package manager..."
+        info "Using APT package manager (Debian, Ubuntu, Mint, Pop!_OS, etc.)..."
         apt-get update -y
-        apt-get install -y python3 python3-pip python3-venv freerdp2-x11 tigervnc-viewer || \
-        apt-get install -y python3 python3-pip python3-venv freerdp3-x11 tigervnc-viewer || \
-        apt-get install -y python3 python3-pip python3-venv freerdp2-bin vncviewer || true
+        apt-get install -y python3 python3-pip python3-venv python3-dev socat telnet openssh-client freerdp2-x11 tigervnc-viewer || \
+        apt-get install -y python3 python3-pip python3-venv python3-dev socat telnet openssh-client freerdp3-x11 tigervnc-viewer || \
+        apt-get install -y python3 python3-pip python3-venv python3-dev socat telnet openssh-client freerdp2-bin vncviewer || true
 
     elif command -v dnf >/dev/null 2>&1; then
-        info "Using DNF package manager..."
-        dnf install -y python3 python3-pip freerdp tigervnc || \
-        dnf install -y python3 python3-pip freerdp2 tigervnc || true
+        info "Using DNF package manager (Fedora, RHEL, CentOS, Rocky, AlmaLinux, etc.)..."
+        dnf install -y python3 python3-pip python3-devel socat telnet openssh-clients freerdp tigervnc || \
+        dnf install -y python3 python3-pip python3-devel socat telnet openssh-clients freerdp2 tigervnc || true
 
     elif command -v yum >/dev/null 2>&1; then
-        info "Using YUM package manager..."
-        yum install -y python3 python3-pip freerdp tigervnc || true
+        info "Using YUM package manager (RHEL 7, CentOS 7, Amazon Linux, etc.)..."
+        yum install -y python3 python3-pip python3-devel socat telnet openssh-clients freerdp tigervnc || true
 
     elif command -v pacman >/dev/null 2>&1; then
-        info "Using Pacman package manager..."
-        pacman -Sy --noconfirm python python-pip freerdp tigervnc || true
+        info "Using Pacman package manager (Arch Linux, Manjaro, EndeavourOS, etc.)..."
+        pacman -Sy --noconfirm python python-pip socat inetutils openssh freerdp tigervnc || true
 
     elif command -v zypper >/dev/null 2>&1; then
-        info "Using Zypper package manager..."
-        zypper --non-interactive install python3 python3-pip freerdp tigervnc-viewer || true
+        info "Using Zypper package manager (openSUSE, SLES, etc.)..."
+        zypper --non-interactive install python3 python3-pip python3-devel socat telnet openssh freerdp tigervnc-viewer || true
+
+    elif command -v apk >/dev/null 2>&1; then
+        info "Using APK package manager (Alpine Linux)..."
+        apk add --no-cache python3 py3-pip python3-dev socat telnet openssh-client freerdp tigervnc || true
+
+    elif command -v xbps-install >/dev/null 2>&1; then
+        info "Using XBPS package manager (Void Linux)..."
+        xbps-install -Sy python3 python3-pip socat telnet openssh freerdp tigervnc || true
+
+    elif command -v eopkg >/dev/null 2>&1; then
+        info "Using EOPKG package manager (Solus)..."
+        eopkg install -y python3 python3-pip socat telnet openssh freerdp tigervnc || true
+
+    elif command -v emerge >/dev/null 2>&1; then
+        info "Using Portage package manager (Gentoo)..."
+        emerge --noreplace dev-lang/python dev-python/pip net-misc/socat net-misc/telnet-bsd net-misc/openssh net-misc/freerdp net-misc/tigervnc || true
 
     else
-        warn "Package manager not recognized automatically. Ensure Python 3, Pip, FreeRDP, and TigerVNC (vncviewer) are installed."
+        warn "Package manager not recognized automatically. Ensure Python 3, Pip, FreeRDP, TigerVNC, socat, telnet, and OpenSSH are installed."
     fi
 }
 
