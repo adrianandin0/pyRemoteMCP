@@ -18,6 +18,7 @@ from pyremotempc.ui.tab_widget import SessionTabWidget
 from pyremotempc.ui.preferences_dialog import PreferencesDialog
 from pyremotempc.ui.dialogs.master_password_dialog import MasterPasswordDialog
 from pyremotempc.ui.icon_manager import get_icon
+from pyremotempc.plugins.plugin_manager import PluginManager
 
 
 def get_user_config_dir() -> str:
@@ -379,7 +380,11 @@ class MainWindow(QMainWindow):
 
         qc_toolbar.addWidget(QLabel(f" {tr('proto', lang)}: "))
         self.qc_proto = QComboBox()
-        self.qc_proto.addItems(["SSH2", "SSH1", "RDP", "VNC", "Telnet"])
+        protocols = PluginManager.instance().list_protocols()
+        if protocols:
+            self.qc_proto.addItems(protocols)
+        else:
+            self.qc_proto.addItems(["SSH", "SSH1", "RDP", "VNC", "TELNET"])
         self.qc_proto.currentTextChanged.connect(self._on_qc_proto_changed)
         qc_toolbar.addWidget(self.qc_proto)
 
@@ -426,14 +431,9 @@ class MainWindow(QMainWindow):
         qc_toolbar.addAction(act_qc_save)
 
     def _on_qc_proto_changed(self, proto: str):
-        if proto in ("SSH2", "SSH1"):
-            self.qc_port.setValue(22)
-        elif proto == "RDP":
-            self.qc_port.setValue(3389)
-        elif proto == "VNC":
-            self.qc_port.setValue(5900)
-        elif proto == "Telnet":
-            self.qc_port.setValue(23)
+        plugin = PluginManager.instance().get_plugin(proto)
+        if plugin and plugin.default_port > 0:
+            self.qc_port.setValue(plugin.default_port)
 
     def _exec_quick_connect(self):
         host = self.qc_host.text().strip()
@@ -452,6 +452,12 @@ class MainWindow(QMainWindow):
             domain=self.qc_domain.text().strip(),
             legacy_ssh=True
         )
+        # Clear focus from quick connect input fields so Enter key goes to terminal
+        self.qc_host.clearFocus()
+        self.qc_domain.clearFocus()
+        self.qc_user.clearFocus()
+        self.qc_pass.clearFocus()
+
         self.session_tabs.open_session(quick_node)
 
     def _exec_quick_save(self):

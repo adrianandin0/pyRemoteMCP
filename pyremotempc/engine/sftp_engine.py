@@ -267,7 +267,47 @@ class NativePTYSFTPEngine:
         if res.returncode != 0:
             self.log(f"SCP Directory Download error: {res.stderr}")
             raise Exception(f"Native SCP Directory Download Error: {res.stderr}")
-        self.log("Directory download completed successfully.")
+    def _run_ssh_cmd(self, ssh_args: str) -> subprocess.CompletedProcess:
+        sshpass = shutil.which("sshpass")
+        target = f"{self.username}@{self.hostname}" if self.username else self.hostname
+        cmd = []
+        if sshpass and self.password:
+            cmd.extend([sshpass, "-p", self.password])
+        cmd.extend([
+            "ssh",
+            "-F", "/dev/null",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null"
+        ])
+        if self.key_filename:
+            cmd.extend(["-i", self.key_filename])
+        cmd.extend(self._get_legacy_options())
+        cmd.extend([
+            "-p", str(self.port),
+            target,
+            ssh_args
+        ])
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+
+    def create_remote_dir(self, remote_path: str):
+        res = self._run_ssh_cmd(f"mkdir -p \"{remote_path}\"")
+        if res.returncode != 0:
+            raise Exception(f"Native SFTP mkdir failed: {res.stderr}")
+
+    def remove_remote_file(self, remote_path: str):
+        res = self._run_ssh_cmd(f"rm -f \"{remote_path}\"")
+        if res.returncode != 0:
+            raise Exception(f"Native SFTP remove_file failed: {res.stderr}")
+
+    def remove_remote_dir(self, remote_path: str):
+        res = self._run_ssh_cmd(f"rm -rf \"{remote_path}\"")
+        if res.returncode != 0:
+            raise Exception(f"Native SFTP remove_dir failed: {res.stderr}")
+
+    def rename_remote(self, old_path: str, new_path: str):
+        res = self._run_ssh_cmd(f"mv \"{old_path}\" \"{new_path}\"")
+        if res.returncode != 0:
+            raise Exception(f"Native SFTP rename failed: {res.stderr}")
 
     def disconnect(self):
         self.is_connected = False
@@ -505,17 +545,54 @@ class SFTPEngine:
             else:
                 self.sftp.get(item_remote_path, local_path)
 
-    def mkdir(self, remote_path: str):
+    def create_remote_dir(self, remote_path: str):
         if self.sftp:
             self.sftp.mkdir(remote_path)
+        elif self.shell_engine:
+            self.shell_engine.execute_command(f"mkdir -p \"{remote_path}\"")
+        elif self.native_sftp:
+            self.native_sftp.create_remote_dir(remote_path)
+        else:
+            raise Exception("SFTP not connected")
 
-    def remove_file(self, remote_path: str):
+    def remove_remote_file(self, remote_path: str):
         if self.sftp:
             self.sftp.remove(remote_path)
+        elif self.shell_engine:
+            self.shell_engine.execute_command(f"rm -f \"{remote_path}\"")
+        elif self.native_sftp:
+            self.native_sftp.remove_remote_file(remote_path)
+        else:
+            raise Exception("SFTP not connected")
 
-    def rmdir(self, remote_path: str):
+    def remove_remote_dir(self, remote_path: str):
         if self.sftp:
-            self.sftp.rmdir(remote_path)
+            self._paramiko_remove_dir(remote_path)
+        elif self.shell_engine:
+            self.shell_engine.execute_command(f"rm -rf \"{remote_path}\"")
+        elif self.native_sftp:
+            self.native_sftp.remove_remote_dir(remote_path)
+        else:
+            raise Exception("SFTP not connected")
+
+    def _paramiko_remove_dir(self, remote_dir: str):
+        for attr in self.sftp.listdir_attr(remote_dir):
+            item_path = f"{remote_dir}/{attr.filename}"
+            if stat.S_ISDIR(attr.st_mode):
+                self._paramiko_remove_dir(item_path)
+            else:
+                self.sftp.remove(item_path)
+        self.sftp.rmdir(remote_dir)
+
+    def rename_remote(self, old_path: str, new_path: str):
+        if self.sftp:
+            self.sftp.rename(old_path, new_path)
+        elif self.shell_engine:
+            self.shell_engine.execute_command(f"mv \"{old_path}\" \"{new_path}\"")
+        elif self.native_sftp:
+            self.native_sftp.rename_remote(old_path, new_path)
+        else:
+            raise Exception("SFTP not connected")
 
     def disconnect(self):
         if self.sftp:

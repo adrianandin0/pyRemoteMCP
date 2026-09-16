@@ -4,6 +4,8 @@ import threading
 import time
 from typing import Callable, Optional
 
+from pyremotempc.engine.base_engine import BaseProtocolEngine
+
 # Telnet Protocol Constants (RFC 854)
 IAC = 255      # Interpret As Command
 DONT = 254     # Don't perform option
@@ -20,7 +22,7 @@ OPT_TERMINAL_TYPE = 24
 OPT_NAWS = 31  # Negotiate About Window Size
 
 
-class TelnetEngine:
+class TelnetEngine(BaseProtocolEngine):
     """
     Telnet Protocol Engine (RFC 854 compliant).
     Handles non-blocking TCP socket communication, Telnet IAC option negotiations
@@ -29,16 +31,10 @@ class TelnetEngine:
     """
 
     def __init__(self, hostname: str, port: int = 23, username: str = "", password: str = ""):
-        self.hostname = hostname
-        self.port = port
-        self.username = username
-        self.password = password
-
+        super().__init__(hostname, port, username, password)
         self.sock: Optional[socket.socket] = None
-        self.is_connected = False
         self._read_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
-        self.output_callback: Optional[Callable[[str], None]] = None
         self.term_type = "xterm"
 
     def connect(self, on_output: Callable[[str], None], term_type: str = "xterm", width: int = 80, height: int = 24) -> bool:

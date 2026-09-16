@@ -46,6 +46,10 @@ class BaseFileTransferEngine(ABC):
     def remove_remote_dir(self, remote_path: str):
         pass
 
+    @abstractmethod
+    def rename_remote(self, old_path: str, new_path: str):
+        pass
+
 
 class UnifiedFileTransferEngine(BaseFileTransferEngine):
     """
@@ -126,3 +130,9 @@ class UnifiedFileTransferEngine(BaseFileTransferEngine):
             self._engine.remove_remote_dir(remote_path)
         else:
             raise NotImplementedError("Directory removal not supported on this protocol engine.")
+
+    def rename_remote(self, old_path: str, new_path: str):
+        if hasattr(self._engine, "rename_remote"):
+            self._engine.rename_remote(old_path, new_path)
+        else:
+            raise NotImplementedError("Rename operation not supported on this protocol engine.")

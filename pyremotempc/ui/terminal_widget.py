@@ -6,7 +6,7 @@ from typing import Optional
 import html
 from collections import defaultdict
 import pyte
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QPlainTextEdit, QFileDialog, QMessageBox
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QPlainTextEdit, QFileDialog, QMessageBox, QMenu
 from PySide6.QtGui import QFont, QTextCursor, QKeyEvent, QInputMethodEvent
 from PySide6.QtCore import Qt, Signal, QObject, QEvent
 from pyremotempc.engine.ssh_engine import SSHEngine
@@ -187,20 +187,13 @@ class SSHPlainTextEdit(QPlainTextEdit):
         super().__init__(parent)
         self.engine = engine
         self._terminal_widget = parent
+        self.setTabChangesFocus(False)
         # Force all keys to bypass Wayland InputMethod and go directly to keyPressEvent
         self.setAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled, False)
-        # The viewport natively handles events first, so we filter it
-        self.viewport().installEventFilter(self)
 
-    def eventFilter(self, obj, event):
-        if obj == self.viewport():
-            if event.type() == QEvent.Type.KeyPress:
-                self.keyPressEvent(event)
-                return True
-            elif event.type() == QEvent.Type.InputMethod:
-                self.inputMethodEvent(event)
-                return True
-        return super().eventFilter(obj, event)
+    def focusNextPrevChild(self, next: bool) -> bool:
+        """Prevents Tab and Shift+Tab from navigating away from the terminal widget."""
+        return False
 
     def insertFromMimeData(self, source):
         if source.hasText():
@@ -216,6 +209,34 @@ class SSHPlainTextEdit(QPlainTextEdit):
         if text and self.engine:
             term_debug(f"SENDING TEXT (IME): {repr(text)}")
             self.engine.send_input(text)
+
+    def contextMenuEvent(self, event):
+        """Custom context menu for SSH terminal: Copy, Paste, Select All, Clear Screen, Export TXT."""
+        menu = QMenu(self)
+
+        copy_action = menu.addAction("Copy (Ctrl+Shift+C)")
+        copy_action.triggered.connect(self.copy)
+        if not self.textCursor().hasSelection():
+            copy_action.setEnabled(False)
+
+        paste_action = menu.addAction("Paste (Ctrl+Shift+V)")
+        paste_action.triggered.connect(self.paste)
+
+        menu.addSeparator()
+
+        select_all_action = menu.addAction("Select All")
+        select_all_action.triggered.connect(self.selectAll)
+
+        menu.addSeparator()
+
+        if self._terminal_widget:
+            clear_action = menu.addAction("Clear Screen & History")
+            clear_action.triggered.connect(self._terminal_widget.clear_terminal)
+
+            export_action = menu.addAction("Export to TXT...")
+            export_action.triggered.connect(self._terminal_widget.export_to_txt)
+
+        menu.exec(event.globalPos())
 
     def keyPressEvent(self, event: QKeyEvent):
         if not self.engine:
@@ -379,6 +400,7 @@ class TerminalWidget(QWidget):
         # Setup pyte VT100/xterm screen emulator
         scroll_limit = self.settings.scrollback_lines if self.settings.scrollback_lines > 0 else 100000
         self.screen = pyte.HistoryScreen(80, 24, history=scroll_limit)
+        self.screen.mode.add(pyte.modes.LNM)
         self.stream = pyte.Stream(self.screen)
 
         proto = (node.protocol or "SSH2").upper()
@@ -406,6 +428,7 @@ class TerminalWidget(QWidget):
                 username=node.username,
                 password=node.password,
                 key_filename=key_file,
+                key_passphrase=getattr(node, "key_passphrase", ""),
                 legacy_mode=getattr(node, "legacy_ssh", True),
                 protocol=proto
             )
@@ -414,6 +437,7 @@ class TerminalWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         self.text_edit = SSHPlainTextEdit(self.engine, self)
+        self.text_edit.setReadOnly(True)
         self.apply_settings()
 
         self.text_edit.setUndoRedoEnabled(False)
@@ -550,6 +574,8 @@ class TerminalWidget(QWidget):
 
     def start_session(self):
         """Starts SSH connection."""
+        self.screen.reset()
+        self.screen.mode.add(pyte.modes.LNM)
         self._update_pty_dimensions()
         self.append_text(f"Connecting to {self.node.hostname}:{self.node.port} via {self.node.protocol}...\r\n")
         connected = self.engine.connect(
@@ -621,6 +647,13 @@ class TerminalWidget(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._update_pty_dimensions()
+
+    def clear_terminal(self):
+        """Clears pyte virtual screen buffer and history."""
+        self.screen.reset()
+        self.screen.mode.add(pyte.modes.LNM)
+        self.screen.history.top.clear()
+        self.append_text("")
 
     def export_to_txt(self):
         """Prompts user and exports current session terminal buffer to a TXT file."""

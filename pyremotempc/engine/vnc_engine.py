@@ -5,12 +5,14 @@ import tempfile
 import threading
 import time
 from typing import Optional, List, Callable, Tuple
+from pyremotempc.engine.base_engine import BaseProtocolEngine
 
 
-class VNCEngine:
+class VNCEngine(BaseProtocolEngine):
     """
     Universal VNC Engine supporting TigerVNC, TightVNC, RealVNC, Vinagre, and Remmina.
     Handles process logging, passwords via temporary pass files, and clean shutdown.
+    Inherits from BaseProtocolEngine.
     """
 
     @staticmethod
@@ -55,16 +57,26 @@ class VNCEngine:
         except Exception:
             return set()
 
-    def __init__(self, hostname: str, port: int = 5900, password: str = ""):
-        self.hostname = hostname
-        self.port = port
-        self.password = password
+    def __init__(self, hostname: str, port: int = 5900, username: str = "", password: str = ""):
+        super().__init__(hostname, port, username, password)
 
         self.process: Optional[subprocess.Popen] = None
         self._read_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
-        self.output_callback: Optional[Callable[[str], None]] = None
         self.pass_file: Optional[str] = None
+
+    def connect(self, on_output: Optional[Callable[[str], None]] = None,
+                term_type: str = "xterm", width: int = 1280, height: int = 800, win_id: Optional[int] = None) -> bool:
+        """BaseProtocolEngine interface implementation."""
+        return self.start_session(on_output=on_output, win_id=win_id, width=width, height=height)
+
+    def disconnect(self):
+        """BaseProtocolEngine interface implementation."""
+        self.stop_session()
+
+    def send_input(self, data: str):
+        """BaseProtocolEngine interface implementation."""
+        pass
 
     def start_session(self, on_output: Optional[Callable[[str], None]] = None, win_id: Optional[int] = None, width: int = 1280, height: int = 800) -> bool:
         """Launches VNC client process and embeds window into win_id if provided."""
@@ -84,6 +96,7 @@ class VNCEngine:
         if client_type == "vncviewer":
             if win_id:
                 cmd.extend(["-embed", str(win_id)])
+            cmd.extend(["-SecurityTypes", "VncAuth,None,TLSVnc,TLSNone"])
             cmd.append(f"{self.hostname}:{self.port}")
             if self.password:
                 try:

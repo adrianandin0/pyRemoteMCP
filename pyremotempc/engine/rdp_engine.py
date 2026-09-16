@@ -3,13 +3,15 @@ import shutil
 import subprocess
 import threading
 import time
-from typing import List, Optional, Callable
+from typing import List, Optional, Callable, Tuple
+from pyremotempc.engine.base_engine import BaseProtocolEngine
 
 
-class RDPEngine:
+class RDPEngine(BaseProtocolEngine):
     """
     Universal RDP Engine using FreeRDP (xfreerdp / freerdp / rdesktop / remmina).
     Captures process output in real-time and provides clear diagnostic logging.
+    Inherits from BaseProtocolEngine and enforces secure credential passing over stdin.
     """
 
     @staticmethod
@@ -30,10 +32,7 @@ class RDPEngine:
                  rdp_cert_path: str = "", redirect_drives: bool = True,
                  redirect_clipboard: bool = True, redirect_sound: bool = True,
                  shared_folder: str = ""):
-        self.hostname = hostname
-        self.port = port
-        self.username = username
-        self.password = password
+        super().__init__(hostname, port, username, password)
         self.domain = domain
         self.rdp_security = rdp_security
         self.rdp_cert_ignore = rdp_cert_ignore
@@ -46,7 +45,8 @@ class RDPEngine:
         self.process: Optional[subprocess.Popen] = None
         self._read_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
-        self.output_callback: Optional[Callable[[str], None]] = None
+        self.width = 1280
+        self.height = 720
 
     def build_cmd(self, win_id: Optional[int] = None, width: int = 1280, height: int = 720) -> List[str]:
         exe_path, client_type = self.get_rdp_client_info()
@@ -59,7 +59,8 @@ class RDPEngine:
             if self.username:
                 cmd.append(f"/u:{self.username}")
             if self.password:
-                cmd.append(f"/p:{self.password}")
+                # Use secure /from-stdin:force to avoid exposing passwords in ps aux process table
+                cmd.append("/from-stdin:force")
             if self.domain:
                 cmd.append(f"/d:{self.domain}")
 
@@ -103,19 +104,32 @@ class RDPEngine:
             cmd.append("/tls:seclevel:0")
             return cmd
 
-
         elif client_type == "rdesktop":
             cmd = [exe_path, f"{self.hostname}:{self.port}", "-g", f"{width}x{height}"]
             if self.username:
                 cmd.extend(["-u", self.username])
             if self.password:
-                cmd.extend(["-p", self.password])
+                cmd.extend(["-p", "-"])
             if self.domain:
                 cmd.extend(["-d", self.domain])
             return cmd
 
         else:
             return [exe_path or "remmina", "-c", f"rdp://{self.hostname}:{self.port}"]
+
+    def connect(self, on_output: Optional[Callable[[str], None]] = None,
+                term_type: str = "xterm", width: int = 1280, height: int = 720,
+                win_id: Optional[int] = None) -> bool:
+        """BaseProtocolEngine interface implementation."""
+        return self.start_session(on_output=on_output, win_id=win_id, width=width, height=height)
+
+    def disconnect(self):
+        """BaseProtocolEngine interface implementation."""
+        self.stop_session()
+
+    def send_input(self, data: str):
+        """BaseProtocolEngine interface implementation."""
+        pass
 
     def start_session(self, on_output: Optional[Callable[[str], None]] = None,
                       win_id: Optional[int] = None, width: int = 1280, height: int = 720) -> bool:
@@ -141,6 +155,7 @@ class RDPEngine:
 
             self.process = subprocess.Popen(
                 cmd,
+                stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -148,6 +163,15 @@ class RDPEngine:
                 env=env
             )
 
+            # Securely send password over stdin pipe to FreeRDP (/from-stdin:force)
+            if self.password and self.process and self.process.stdin:
+                try:
+                    self.process.stdin.write(f"{self.password}\n")
+                    self.process.stdin.flush()
+                except Exception:
+                    pass
+
+            self.is_connected = True
             self._stop_event.clear()
             self._read_thread = threading.Thread(target=self._read_loop, daemon=True)
             self._read_thread.start()
@@ -155,6 +179,7 @@ class RDPEngine:
         except Exception as e:
             if self.output_callback:
                 self.output_callback(f"[RDP Launch Error]: {str(e)}\n")
+            self.is_connected = False
             return False
 
     def _read_loop(self):

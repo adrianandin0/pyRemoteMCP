@@ -1,7 +1,9 @@
 import os
+import shutil
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeWidget, QTreeWidgetItem,
-    QLineEdit, QPushButton, QLabel, QMessageBox, QFileDialog, QHeaderView, QPlainTextEdit, QGroupBox, QCheckBox
+    QLineEdit, QPushButton, QLabel, QMessageBox, QFileDialog, QHeaderView, QPlainTextEdit, QGroupBox, QCheckBox,
+    QMenu, QInputDialog
 )
 from PySide6.QtCore import Qt, QSize, QThread, Signal, QObject
 from PySide6.QtGui import QIcon, QTextCursor
@@ -173,12 +175,23 @@ class SFTPWidget(QWidget):
         self.btn_loc_up.setToolTip(tr("up", self.lang))
         self.btn_loc_up.clicked.connect(self._local_up)
         loc_nav.addWidget(self.btn_loc_up)
+
+        self.btn_loc_home = QPushButton(self)
+        self.btn_loc_home.setIcon(get_icon("home"))
+        self.btn_loc_home.setIconSize(QSize(20, 20))
+        self.btn_loc_home.setFixedSize(28, 28)
+        self.btn_loc_home.setStyleSheet(FLAT_BTN_STYLE)
+        self.btn_loc_home.setToolTip("Home")
+        self.btn_loc_home.clicked.connect(self._go_local_home)
+        loc_nav.addWidget(self.btn_loc_home)
         local_vbox.addLayout(loc_nav)
 
         self.tree_local = QTreeWidget(self)
         self.tree_local.setHeaderLabels([tr("col_name", self.lang), tr("col_size", self.lang), tr("col_perms", self.lang)])
         self.tree_local.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.tree_local.setSortingEnabled(True)
+        self.tree_local.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree_local.customContextMenuRequested.connect(self._show_local_context_menu)
         self.tree_local.itemDoubleClicked.connect(self._on_local_double_click)
         self.tree_local.itemActivated.connect(self._on_local_double_click)
         local_vbox.addWidget(self.tree_local)
@@ -236,12 +249,23 @@ class SFTPWidget(QWidget):
         self.btn_rem_up.setToolTip(tr("up", self.lang))
         self.btn_rem_up.clicked.connect(self._remote_up)
         rem_nav.addWidget(self.btn_rem_up)
+
+        self.btn_rem_home = QPushButton(self)
+        self.btn_rem_home.setIcon(get_icon("home"))
+        self.btn_rem_home.setIconSize(QSize(20, 20))
+        self.btn_rem_home.setFixedSize(28, 28)
+        self.btn_rem_home.setStyleSheet(FLAT_BTN_STYLE)
+        self.btn_rem_home.setToolTip("Home")
+        self.btn_rem_home.clicked.connect(self._go_remote_home)
+        rem_nav.addWidget(self.btn_rem_home)
         remote_vbox.addLayout(rem_nav)
 
         self.tree_remote = QTreeWidget(self)
         self.tree_remote.setHeaderLabels([tr("col_name", self.lang), tr("col_size", self.lang), tr("col_perms", self.lang)])
         self.tree_remote.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.tree_remote.setSortingEnabled(True)
+        self.tree_remote.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree_remote.customContextMenuRequested.connect(self._show_remote_context_menu)
         self.tree_remote.itemDoubleClicked.connect(self._on_remote_double_click)
         self.tree_remote.itemActivated.connect(self._on_remote_double_click)
         remote_vbox.addWidget(self.tree_remote)
@@ -522,6 +546,172 @@ class SFTPWidget(QWidget):
             self.load_local_dir()
         except Exception as e:
             QMessageBox.critical(self, "Download Failed", f"SFTP Download error:\n{str(e)}")
+
+    def _go_local_home(self):
+        self.edit_local_path.setText(os.path.expanduser("~"))
+        self.load_local_dir()
+
+    def _go_remote_home(self):
+        if self.sftp_engine.is_connected:
+            current = self.sftp_engine.get_current_dir()
+            self.edit_remote_path.setText(current)
+            self.load_remote_dir()
+        else:
+            self.edit_remote_path.setText("/")
+
+    def _show_local_context_menu(self, pos):
+        item = self.tree_local.itemAt(pos)
+        menu = QMenu(self)
+
+        upload_action = menu.addAction("Upload to Remote Host")
+        upload_action.triggered.connect(self.upload_selected)
+        if not item or item.text(0) == "..":
+            upload_action.setEnabled(False)
+
+        menu.addSeparator()
+
+        mkdir_action = menu.addAction("New Directory...")
+        mkdir_action.triggered.connect(self.create_local_dir)
+
+        if item and item.text(0) != "..":
+            rename_action = menu.addAction("Rename...")
+            rename_action.triggered.connect(self.rename_local)
+
+            delete_action = menu.addAction("Delete")
+            delete_action.triggered.connect(self.delete_local)
+
+        menu.addSeparator()
+
+        refresh_action = menu.addAction("Refresh")
+        refresh_action.triggered.connect(self.load_local_dir)
+
+        menu.exec(self.tree_local.viewport().mapToGlobal(pos))
+
+    def _show_remote_context_menu(self, pos):
+        item = self.tree_remote.itemAt(pos)
+        menu = QMenu(self)
+
+        download_action = menu.addAction("Download to Local Machine")
+        download_action.triggered.connect(self.download_selected)
+        if not item or item.text(0) == "..":
+            download_action.setEnabled(False)
+
+        menu.addSeparator()
+
+        mkdir_action = menu.addAction("New Directory...")
+        mkdir_action.triggered.connect(self.create_remote_dir)
+
+        if item and item.text(0) != "..":
+            rename_action = menu.addAction("Rename...")
+            rename_action.triggered.connect(self.rename_remote)
+
+            delete_action = menu.addAction("Delete")
+            delete_action.triggered.connect(self.delete_remote)
+
+        menu.addSeparator()
+
+        refresh_action = menu.addAction("Refresh")
+        refresh_action.triggered.connect(self.load_remote_dir)
+
+        menu.exec(self.tree_remote.viewport().mapToGlobal(pos))
+
+    def create_local_dir(self):
+        parent_dir = os.path.expanduser(self.edit_local_path.text().strip())
+        folder_name, ok = QInputDialog.getText(self, "New Local Directory", "Directory name:")
+        if ok and folder_name.strip():
+            new_path = os.path.join(parent_dir, folder_name.strip())
+            try:
+                os.makedirs(new_path, exist_ok=True)
+                self.load_local_dir()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to create directory:\n{str(e)}")
+
+    def rename_local(self):
+        item = self.tree_local.currentItem()
+        if not item or item.text(0) == "..":
+            return
+        old_path = item.data(0, Qt.ItemDataRole.UserRole)
+        old_name = os.path.basename(old_path)
+        new_name, ok = QInputDialog.getText(self, "Rename Local Item", "New name:", text=old_name)
+        if ok and new_name.strip() and new_name.strip() != old_name:
+            new_path = os.path.join(os.path.dirname(old_path), new_name.strip())
+            try:
+                os.rename(old_path, new_path)
+                self.load_local_dir()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to rename item:\n{str(e)}")
+
+    def delete_local(self):
+        item = self.tree_local.currentItem()
+        if not item or item.text(0) == "..":
+            return
+        path = item.data(0, Qt.ItemDataRole.UserRole)
+        name = os.path.basename(path)
+        reply = QMessageBox.question(self, "Confirm Delete", f"Permanently delete '{name}'?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                if os.path.isdir(path):
+                    shutil.rmtree(path)
+                else:
+                    os.remove(path)
+                self.load_local_dir()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to delete item:\n{str(e)}")
+
+    def create_remote_dir(self):
+        if not self.sftp_engine.is_connected:
+            QMessageBox.warning(self, "SFTP Error", "SFTP is not connected.")
+            return
+        parent_dir = self.edit_remote_path.text().strip()
+        folder_name, ok = QInputDialog.getText(self, "New Remote Directory", "Directory name:")
+        if ok and folder_name.strip():
+            new_path = os.path.join(parent_dir, folder_name.strip()).replace("\\", "/")
+            try:
+                self.sftp_engine.create_remote_dir(new_path)
+                self.load_remote_dir()
+            except Exception as e:
+                QMessageBox.critical(self, "SFTP Error", f"Failed to create remote directory:\n{str(e)}")
+
+    def rename_remote(self):
+        if not self.sftp_engine.is_connected:
+            QMessageBox.warning(self, "SFTP Error", "SFTP is not connected.")
+            return
+        item = self.tree_remote.currentItem()
+        if not item or item.text(0) == "..":
+            return
+        old_path = item.data(0, Qt.ItemDataRole.UserRole)
+        old_name = os.path.basename(old_path)
+        new_name, ok = QInputDialog.getText(self, "Rename Remote Item", "New name:", text=old_name)
+        if ok and new_name.strip() and new_name.strip() != old_name:
+            new_path = os.path.join(os.path.dirname(old_path), new_name.strip()).replace("\\", "/")
+            try:
+                self.sftp_engine.rename_remote(old_path, new_path)
+                self.load_remote_dir()
+            except Exception as e:
+                QMessageBox.critical(self, "SFTP Error", f"Failed to rename remote item:\n{str(e)}")
+
+    def delete_remote(self):
+        if not self.sftp_engine.is_connected:
+            QMessageBox.warning(self, "SFTP Error", "SFTP is not connected.")
+            return
+        item = self.tree_remote.currentItem()
+        if not item or item.text(0) == "..":
+            return
+        path = item.data(0, Qt.ItemDataRole.UserRole)
+        name = os.path.basename(path)
+        is_dir = item.data(1, Qt.ItemDataRole.UserRole)
+        reply = QMessageBox.question(self, "Confirm Remote Delete", f"Permanently delete '{name}' on remote server?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                if is_dir:
+                    self.sftp_engine.remove_remote_dir(path)
+                else:
+                    self.sftp_engine.remove_remote_file(path)
+                self.load_remote_dir()
+            except Exception as e:
+                QMessageBox.critical(self, "SFTP Error", f"Failed to delete remote item:\n{str(e)}")
 
     def closeEvent(self, event):
         self.sftp_engine.disconnect()

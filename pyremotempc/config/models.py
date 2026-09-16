@@ -76,6 +76,7 @@ class ConnectionNode:
             "legacy_ssh": self.legacy_ssh,
             "auth_method": self.auth_method,
             "key_path": self.key_path or self.private_key_file,
+            "key_passphrase": self.key_passphrase,
             "ssh_version": self.ssh_version,
             "resolution": self.resolution,
             "rdp_security": self.rdp_security,

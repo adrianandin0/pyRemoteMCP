@@ -14,6 +14,7 @@ from pyremotempc.ui.sftp_widget import SFTPWidget
 from pyremotempc.engine.rdp_engine import RDPEngine
 from pyremotempc.engine.vnc_engine import VNCEngine
 from pyremotempc.ui.vnc_widget import VNCWidget
+from pyremotempc.plugins.plugin_manager import PluginManager
 
 
 import ctypes
@@ -121,16 +122,16 @@ class SessionTabWidget(QTabWidget):
         self.tabBar().setTabButton(idx, self.tabBar().ButtonPosition.RightSide, None)
 
     def open_session(self, node: ConnectionNode):
-        """Opens a new session tab for the specified ConnectionNode."""
+        """Opens a new session tab for the specified ConnectionNode using PluginManager dynamic lookup."""
         if self.count() == 1 and self.tabText(0) in ("Welcome", "Bienvenido"):
             self.removeTab(0)
 
         proto = node.protocol.upper()
-        if "SSH" in proto or proto == "TELNET":
-            self._open_ssh_session(node)
-        elif proto == "RDP":
+        engine_cls = PluginManager.instance().get_engine_class(proto)
+
+        if engine_cls is RDPEngine:
             self._open_rdp_session(node)
-        elif proto == "VNC":
+        elif engine_cls is VNCEngine:
             self._open_vnc_session(node)
         else:
             self._open_ssh_session(node)
@@ -192,6 +193,7 @@ class SessionTabWidget(QTabWidget):
         idx = self.addTab(session_container, get_node_icon(node), format_tab_title(node))
         self.setCurrentIndex(idx)
         QTimer.singleShot(50, term.start_session)
+        QTimer.singleShot(100, lambda: term.text_edit.setFocus())
 
     def _toggle_sftp(self, sftp_panel: SFTPWidget):
         is_visible = sftp_panel.isVisible()

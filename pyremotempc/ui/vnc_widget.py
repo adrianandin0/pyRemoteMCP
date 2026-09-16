@@ -170,9 +170,10 @@ class RFBThread(QThread):
                 challenge = self._recv_exact(16)
                 response = vnc_encrypt_password(self.password, challenge)
                 self.sock.sendall(response)
-                sec_result = struct.unpack(">I", self._recv_exact(4))[0]
-                if sec_result != 0:
-                    raise Exception("VNC Authentication Failed (Incorrect password).")
+                if rfb_ver != (3, 3):
+                    sec_result = struct.unpack(">I", self._recv_exact(4))[0]
+                    if sec_result != 0:
+                        raise Exception("VNC Authentication Failed (Incorrect password).")
 
             elif chosen_sec == 1:
                 # Type 1: None (no password required)

@@ -1,12 +1,13 @@
 from PySide6.QtWidgets import (
     QWidget, QFormLayout, QLineEdit, QComboBox, QSpinBox, QCheckBox,
-    QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QScrollArea
+    QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QScrollArea, QLabel
 )
 import os
 from pathlib import Path
 from PySide6.QtCore import Qt, Signal, QSize
 from pyremotempc.config.models import ConnectionNode
 from pyremotempc.ui.icon_manager import get_icon
+from pyremotempc.plugins.plugin_manager import PluginManager
 
 
 class PropertyGridScrollContent(QWidget):
@@ -48,16 +49,19 @@ class PropertyGridWidget(QWidget):
         self.form_layout.setSpacing(6)
 
         # General Group
+        self.lbl_name = QLabel("Name:")
         self.txt_name = QLineEdit()
         self.txt_name.setMinimumWidth(30)
         self.txt_name.textChanged.connect(self._on_field_edited)
-        self.form_layout.addRow("Name:", self.txt_name)
+        self.form_layout.addRow(self.lbl_name, self.txt_name)
 
+        self.lbl_description = QLabel("Description:")
         self.txt_description = QLineEdit()
         self.txt_description.setMinimumWidth(30)
         self.txt_description.textChanged.connect(self._on_field_edited)
-        self.form_layout.addRow("Description:", self.txt_description)
+        self.form_layout.addRow(self.lbl_description, self.txt_description)
 
+        self.lbl_icon = QLabel("Icon:")
         self.cmb_icon = QComboBox()
         self.cmb_icon.setMinimumWidth(30)
         self.cmb_icon.addItem(get_icon("windows"), "Windows")
@@ -72,45 +76,56 @@ class PropertyGridWidget(QWidget):
         self.cmb_icon.addItem(get_icon("storage"), "Storage")
         self.cmb_icon.addItem(get_icon("database"), "Database")
         self.cmb_icon.currentTextChanged.connect(self._on_field_edited)
-        self.form_layout.addRow("Icon:", self.cmb_icon)
+        self.form_layout.addRow(self.lbl_icon, self.cmb_icon)
 
         # Connection Group
+        self.lbl_hostname = QLabel("Hostname / IP:")
         self.txt_hostname = QLineEdit()
         self.txt_hostname.setMinimumWidth(30)
         self.txt_hostname.textChanged.connect(self._on_field_edited)
-        self.form_layout.addRow("Hostname / IP:", self.txt_hostname)
+        self.form_layout.addRow(self.lbl_hostname, self.txt_hostname)
 
+        self.lbl_protocol = QLabel("Protocol:")
         self.cmb_protocol = QComboBox()
         self.cmb_protocol.setMinimumWidth(30)
-        self.cmb_protocol.addItems(["SSH2", "SSH1", "RDP", "VNC", "Telnet", "HTTP", "HTTPS"])
+        protocols = PluginManager.instance().list_protocols()
+        if protocols:
+            self.cmb_protocol.addItems(protocols)
+        else:
+            self.cmb_protocol.addItems(["SSH", "SSH1", "RDP", "VNC", "TELNET"])
         self.cmb_protocol.currentTextChanged.connect(self._on_protocol_changed)
-        self.form_layout.addRow("Protocol:", self.cmb_protocol)
+        self.form_layout.addRow(self.lbl_protocol, self.cmb_protocol)
 
+        self.lbl_port = QLabel("Port:")
         self.spn_port = QSpinBox()
         self.spn_port.setMinimumWidth(30)
         self.spn_port.setRange(1, 65535)
         self.spn_port.setValue(22)
         self.spn_port.valueChanged.connect(self._on_field_edited)
-        self.form_layout.addRow("Port:", self.spn_port)
+        self.form_layout.addRow(self.lbl_port, self.spn_port)
 
         # Credentials Group
+        self.lbl_domain = QLabel("Domain:")
         self.txt_domain = QLineEdit()
         self.txt_domain.setMinimumWidth(30)
         self.txt_domain.textChanged.connect(self._on_field_edited)
-        self.form_layout.addRow("Domain:", self.txt_domain)
+        self.form_layout.addRow(self.lbl_domain, self.txt_domain)
 
+        self.lbl_username = QLabel("Username:")
         self.txt_username = QLineEdit()
         self.txt_username.setMinimumWidth(30)
         self.txt_username.textChanged.connect(self._on_field_edited)
-        self.form_layout.addRow("Username:", self.txt_username)
+        self.form_layout.addRow(self.lbl_username, self.txt_username)
 
+        self.lbl_password = QLabel("Password:")
         self.txt_password = QLineEdit()
         self.txt_password.setMinimumWidth(30)
         self.txt_password.setEchoMode(QLineEdit.EchoMode.Password)
         self.txt_password.textChanged.connect(self._on_field_edited)
-        self.form_layout.addRow("Password:", self.txt_password)
+        self.form_layout.addRow(self.lbl_password, self.txt_password)
 
         # Private Key File Layout
+        self.lbl_private_key = QLabel("Private Key File:")
         self.txt_private_key = QLineEdit()
         self.txt_private_key.setMinimumWidth(30)
         self.txt_private_key.textChanged.connect(self._on_field_edited)
@@ -118,31 +133,36 @@ class PropertyGridWidget(QWidget):
         self.btn_browse_key.setFixedWidth(26)
         self.btn_browse_key.clicked.connect(self._on_browse_key)
         
-        key_layout = QHBoxLayout()
+        self.key_container = QWidget()
+        key_layout = QHBoxLayout(self.key_container)
         key_layout.setContentsMargins(0, 0, 0, 0)
         key_layout.setSpacing(2)
         key_layout.addWidget(self.txt_private_key)
         key_layout.addWidget(self.btn_browse_key)
-        self.form_layout.addRow("Private Key File:", key_layout)
+        self.form_layout.addRow(self.lbl_private_key, self.key_container)
 
         # Protocol Specific Settings
+        self.lbl_ssh_options = QLabel("SSH Options:")
         self.chk_legacy_ssh = QCheckBox("Enable Legacy Security")
         self.chk_legacy_ssh.setChecked(True)
         self.chk_legacy_ssh.toggled.connect(self._on_field_edited)
-        self.form_layout.addRow("SSH Options:", self.chk_legacy_ssh)
+        self.form_layout.addRow(self.lbl_ssh_options, self.chk_legacy_ssh)
 
+        self.lbl_rdp_sec = QLabel("RDP Security:")
         self.cmb_rdp_sec = QComboBox()
         self.cmb_rdp_sec.setMinimumWidth(30)
         self.cmb_rdp_sec.addItems(["Auto", "NLA", "RDP", "TLS"])
         self.cmb_rdp_sec.currentTextChanged.connect(self._on_field_edited)
-        self.form_layout.addRow("RDP Security:", self.cmb_rdp_sec)
+        self.form_layout.addRow(self.lbl_rdp_sec, self.cmb_rdp_sec)
 
         # RDP SSL Certificate Options
+        self.lbl_rdp_cert_ignore = QLabel("RDP SSL Cert:")
         self.chk_rdp_cert_ignore = QCheckBox("Ignore Untrusted SSL Certs")
         self.chk_rdp_cert_ignore.setChecked(True)
         self.chk_rdp_cert_ignore.toggled.connect(self._on_field_edited)
-        self.form_layout.addRow("RDP SSL Cert:", self.chk_rdp_cert_ignore)
+        self.form_layout.addRow(self.lbl_rdp_cert_ignore, self.chk_rdp_cert_ignore)
 
+        self.lbl_rdp_cert_path = QLabel("Custom CA File:")
         self.txt_rdp_cert_path = QLineEdit()
         self.txt_rdp_cert_path.setMinimumWidth(30)
         self.txt_rdp_cert_path.setPlaceholderText("Path to custom CA / cert.crt")
@@ -151,23 +171,27 @@ class PropertyGridWidget(QWidget):
         self.btn_browse_cert.setFixedWidth(26)
         self.btn_browse_cert.clicked.connect(self._on_browse_cert)
 
-        cert_layout = QHBoxLayout()
+        self.cert_container = QWidget()
+        cert_layout = QHBoxLayout(self.cert_container)
         cert_layout.setContentsMargins(0, 0, 0, 0)
         cert_layout.setSpacing(2)
         cert_layout.addWidget(self.txt_rdp_cert_path)
         cert_layout.addWidget(self.btn_browse_cert)
-        self.form_layout.addRow("Custom CA File:", cert_layout)
+        self.form_layout.addRow(self.lbl_rdp_cert_path, self.cert_container)
 
+        self.lbl_redirect_clipboard = QLabel("RDP Clipboard:")
         self.chk_redirect_clipboard = QCheckBox("Redirect Clipboard (+clipboard)")
         self.chk_redirect_clipboard.setChecked(True)
         self.chk_redirect_clipboard.toggled.connect(self._on_field_edited)
-        self.form_layout.addRow("RDP Clipboard:", self.chk_redirect_clipboard)
+        self.form_layout.addRow(self.lbl_redirect_clipboard, self.chk_redirect_clipboard)
 
+        self.lbl_redirect_drives = QLabel("RDP Drive:")
         self.chk_redirect_drives = QCheckBox("Redirect Network Drive")
         self.chk_redirect_drives.setChecked(True)
         self.chk_redirect_drives.toggled.connect(self._on_field_edited)
-        self.form_layout.addRow("RDP Drive:", self.chk_redirect_drives)
+        self.form_layout.addRow(self.lbl_redirect_drives, self.chk_redirect_drives)
 
+        self.lbl_rdp_shared_folder = QLabel("RDP Shared Folder:")
         self.txt_rdp_shared_folder = QLineEdit()
         self.txt_rdp_shared_folder.setMinimumWidth(30)
         self.txt_rdp_shared_folder.setPlaceholderText("Global default (~/RDP_Shared)")
@@ -176,28 +200,101 @@ class PropertyGridWidget(QWidget):
         self.btn_browse_rdp_folder.setFixedWidth(26)
         self.btn_browse_rdp_folder.clicked.connect(self._on_browse_rdp_folder)
 
-        folder_layout = QHBoxLayout()
+        self.folder_container = QWidget()
+        folder_layout = QHBoxLayout(self.folder_container)
         folder_layout.setContentsMargins(0, 0, 0, 0)
         folder_layout.setSpacing(2)
         folder_layout.addWidget(self.txt_rdp_shared_folder)
         folder_layout.addWidget(self.btn_browse_rdp_folder)
-        self.form_layout.addRow("RDP Shared Folder:", folder_layout)
+        self.form_layout.addRow(self.lbl_rdp_shared_folder, self.folder_container)
 
         # VNC Specific Settings
+        self.lbl_vnc_engine = QLabel("VNC Engine:")
         self.cmb_vnc_engine = QComboBox()
         self.cmb_vnc_engine.setMinimumWidth(30)
         self.cmb_vnc_engine.addItems(["Auto", "Native", "System (TigerVNC / Remmina)"])
         self.cmb_vnc_engine.currentTextChanged.connect(self._on_field_edited)
-        self.form_layout.addRow("VNC Engine:", self.cmb_vnc_engine)
+        self.form_layout.addRow(self.lbl_vnc_engine, self.cmb_vnc_engine)
 
+        self.lbl_vnc_sec = QLabel("VNC Security:")
         self.cmb_vnc_sec = QComboBox()
         self.cmb_vnc_sec.setMinimumWidth(30)
         self.cmb_vnc_sec.addItems(["Auto", "Standard VNC Auth (Type 2)", "UltraVNC MSLogon (Type 11)"])
         self.cmb_vnc_sec.currentTextChanged.connect(self._on_field_edited)
-        self.form_layout.addRow("VNC Security:", self.cmb_vnc_sec)
+        self.form_layout.addRow(self.lbl_vnc_sec, self.cmb_vnc_sec)
 
         scroll.setWidget(scroll_content)
         main_layout.addWidget(scroll)
+
+    def _set_row_visible(self, label, field, visible: bool):
+        label.setVisible(visible)
+        field.setVisible(visible)
+
+    def _update_field_visibilities(self):
+        if not self.current_node:
+            return
+
+        is_container = self.current_node.is_container()
+
+        # Name and Description are ALWAYS visible
+        self._set_row_visible(self.lbl_name, self.txt_name, True)
+        self._set_row_visible(self.lbl_description, self.txt_description, True)
+
+        if is_container:
+            # Container Nodes (Root "Connections" & Folders): ONLY Name & Description are visible
+            self._set_row_visible(self.lbl_icon, self.cmb_icon, False)
+            self._set_row_visible(self.lbl_hostname, self.txt_hostname, False)
+            self._set_row_visible(self.lbl_protocol, self.cmb_protocol, False)
+            self._set_row_visible(self.lbl_port, self.spn_port, False)
+            self._set_row_visible(self.lbl_domain, self.txt_domain, False)
+            self._set_row_visible(self.lbl_username, self.txt_username, False)
+            self._set_row_visible(self.lbl_password, self.txt_password, False)
+
+            # SSH
+            self._set_row_visible(self.lbl_private_key, self.key_container, False)
+            self._set_row_visible(self.lbl_ssh_options, self.chk_legacy_ssh, False)
+
+            # RDP
+            self._set_row_visible(self.lbl_rdp_sec, self.cmb_rdp_sec, False)
+            self._set_row_visible(self.lbl_rdp_cert_ignore, self.chk_rdp_cert_ignore, False)
+            self._set_row_visible(self.lbl_rdp_cert_path, self.cert_container, False)
+            self._set_row_visible(self.lbl_redirect_clipboard, self.chk_redirect_clipboard, False)
+            self._set_row_visible(self.lbl_redirect_drives, self.chk_redirect_drives, False)
+            self._set_row_visible(self.lbl_rdp_shared_folder, self.folder_container, False)
+
+            # VNC
+            self._set_row_visible(self.lbl_vnc_engine, self.cmb_vnc_engine, False)
+            self._set_row_visible(self.lbl_vnc_sec, self.cmb_vnc_sec, False)
+        else:
+            # Connection Nodes:
+            self._set_row_visible(self.lbl_icon, self.cmb_icon, True)
+            self._set_row_visible(self.lbl_hostname, self.txt_hostname, True)
+            self._set_row_visible(self.lbl_protocol, self.cmb_protocol, True)
+            self._set_row_visible(self.lbl_port, self.spn_port, True)
+            self._set_row_visible(self.lbl_domain, self.txt_domain, True)
+            self._set_row_visible(self.lbl_username, self.txt_username, True)
+            self._set_row_visible(self.lbl_password, self.txt_password, True)
+
+            proto = self.cmb_protocol.currentText().upper()
+            is_ssh = proto in ("SSH", "SSH2", "SSH1")
+            is_rdp = (proto == "RDP")
+            is_vnc = (proto == "VNC")
+
+            # SSH Options
+            self._set_row_visible(self.lbl_private_key, self.key_container, is_ssh)
+            self._set_row_visible(self.lbl_ssh_options, self.chk_legacy_ssh, is_ssh)
+
+            # RDP Options
+            self._set_row_visible(self.lbl_rdp_sec, self.cmb_rdp_sec, is_rdp)
+            self._set_row_visible(self.lbl_rdp_cert_ignore, self.chk_rdp_cert_ignore, is_rdp)
+            self._set_row_visible(self.lbl_rdp_cert_path, self.cert_container, is_rdp)
+            self._set_row_visible(self.lbl_redirect_clipboard, self.chk_redirect_clipboard, is_rdp)
+            self._set_row_visible(self.lbl_redirect_drives, self.chk_redirect_drives, is_rdp)
+            self._set_row_visible(self.lbl_rdp_shared_folder, self.folder_container, is_rdp)
+
+            # VNC Options
+            self._set_row_visible(self.lbl_vnc_engine, self.cmb_vnc_engine, is_vnc)
+            self._set_row_visible(self.lbl_vnc_sec, self.cmb_vnc_sec, is_vnc)
 
     def load_node(self, node: ConnectionNode):
         """Populates the property fields with data from node cleanly."""
@@ -232,6 +329,8 @@ class PropertyGridWidget(QWidget):
         self.cmb_protocol.setEnabled(is_conn)
         self.spn_port.setEnabled(is_conn)
 
+        self._update_field_visibilities()
+
         self.loading = False
 
     def _on_protocol_changed(self, protocol_str: str):
@@ -239,23 +338,11 @@ class PropertyGridWidget(QWidget):
             return
 
         self.current_node.protocol = protocol_str
-        if protocol_str in ("SSH2", "SSH1"):
-            self.spn_port.setValue(22)
-            self.cmb_icon.setCurrentText("Terminal")
-        elif protocol_str == "RDP":
-            self.spn_port.setValue(3389)
-            self.cmb_icon.setCurrentText("Windows")
-        elif protocol_str == "VNC":
-            self.spn_port.setValue(5900)
-            self.cmb_icon.setCurrentText("VNC")
-        elif protocol_str == "Telnet":
-            self.spn_port.setValue(23)
-            self.cmb_icon.setCurrentText("Connections")
-        elif protocol_str == "HTTP":
-            self.spn_port.setValue(80)
-        elif protocol_str == "HTTPS":
-            self.spn_port.setValue(443)
+        plugin = PluginManager.instance().get_plugin(protocol_str)
+        if plugin and plugin.default_port > 0:
+            self.spn_port.setValue(plugin.default_port)
 
+        self._update_field_visibilities()
         self._on_field_edited()
 
     def _on_browse_key(self):

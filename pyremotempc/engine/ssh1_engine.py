@@ -10,6 +10,8 @@ from cryptography.hazmat.primitives.asymmetric.padding import PKCS1v15
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding
 
+from pyremotempc.engine.base_engine import BaseProtocolEngine
+
 # SSH1 Packet Types (RFC / SSH 1.5 Spec)
 SSH_MSG_NONE = 0
 SSH_SMSG_PUBLIC_KEY = 2
@@ -34,7 +36,7 @@ SSH_CIPHER_RC4 = 5
 SSH_CIPHER_BLOWFISH = 6
 
 
-class PurePythonSSH1Engine:
+class PurePythonSSH1Engine(BaseProtocolEngine):
     """
     Pure Python SSH 1.5 Protocol Engine.
     Handles native SSH 1.5 / SSH 1.3 handshakes, RSA session key exchange, 3DES encryption and PTY shell.
@@ -42,22 +44,15 @@ class PurePythonSSH1Engine:
     """
 
     def __init__(self, hostname: str, port: int = 22, username: str = "", password: str = ""):
-        self.hostname = hostname
-        self.port = port
-        self.username = username
-        self.password = password
-
+        super().__init__(hostname, port, username, password)
         self.sock: Optional[socket.socket] = None
         self.session_key: bytes = os.urandom(32)
         self.cipher_type = SSH_CIPHER_3DES
 
         self.encryptor = None
         self.decryptor = None
-
-        self.is_connected = False
         self._read_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
-        self.output_callback: Optional[Callable[[str], None]] = None
 
     def connect(self, on_output: Callable[[str], None], term_type: str = "xterm", width: int = 80, height: int = 24) -> bool:
         self.output_callback = on_output
