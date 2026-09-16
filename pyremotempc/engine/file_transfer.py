@@ -54,8 +54,8 @@ class BaseFileTransferEngine(ABC):
 class UnifiedFileTransferEngine(BaseFileTransferEngine):
     """
     Unified File Transfer Engine.
-    Detects whether the connection protocol is SSH1 or SSH2, and routes
-    operations automatically between Paramiko/Native SFTP or SCP1.
+    Detects whether the connection protocol is SSH1, SSH2/SFTP, or FTP, and routes
+    operations automatically between Paramiko/Native SFTP, SCP1, or FTPEngine.
     """
 
     def __init__(self, hostname: str, port: int = 22, username: str = "", password: str = "",
@@ -70,14 +70,20 @@ class UnifiedFileTransferEngine(BaseFileTransferEngine):
         self.ssh_engine = ssh_engine
         self.log_callback = log_callback
 
-        if self.ssh_version == "SSH1":
+        if self.ssh_version == "FTP":
+            from pyremotempc.engine.ftp_engine import FTPEngine
+            self._engine = FTPEngine(
+                hostname=hostname, port=port if port else 21, username=username, password=password,
+                log_callback=log_callback
+            )
+        elif self.ssh_version == "SSH1":
             # SSH1 uses SCP1 native CLI wrapper engine
             self._engine = NativePTYSFTPEngine(
                 hostname=hostname, port=port, username=username, password=password,
                 key_filename=key_filename, log_callback=log_callback
             )
         else:
-            # SSH2 uses SFTPEngine (Paramiko + fallback)
+            # SSH2 / SFTP uses SFTPEngine (Paramiko + fallback)
             self._engine = SFTPEngine(
                 hostname=hostname, port=port, username=username, password=password,
                 key_filename=key_filename, ssh_engine=ssh_engine, log_callback=log_callback

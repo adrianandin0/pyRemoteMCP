@@ -57,15 +57,20 @@ LEGACY_KEX = (
     'diffie-hellman-group1-sha1',
 )
 
-# Preferred key algorithms order (modern algorithms first, legacy ssh-rsa fallback last)
+import logging
+
+# Suppress paramiko internal transport thread traceback logging to CLI
+logging.getLogger("paramiko.transport").setLevel(logging.CRITICAL)
+
+# Preferred key algorithms order (supporting legacy ssh-rsa host key signatures)
 LEGACY_KEYS = (
     'ssh-ed25519',
     'ecdsa-sha2-nistp256',
     'ecdsa-sha2-nistp384',
     'ecdsa-sha2-nistp521',
+    'ssh-rsa',
     'rsa-sha2-512',
     'rsa-sha2-256',
-    'ssh-rsa',
 )
 
 LEGACY_CIPHERS = (
@@ -138,11 +143,22 @@ def configure_security_options(transport: paramiko.Transport):
 
 def load_encrypted_private_key(key_filename: str, passphrase: Optional[str] = None) -> Optional[paramiko.PKey]:
     """
-    Attempts to load an SSH private key file (Ed25519, RSA, ECDSA, DSA) using Paramiko.
+    Attempts to load an SSH private key file (Ed25519, RSA, ECDSA, DSA, PuTTY .ppk) using Paramiko.
     Handles passphrase-protected keys cleanly.
     """
     if not key_filename or not os.path.exists(key_filename):
         return None
+
+    # Check for PuTTY .ppk file format header
+    try:
+        with open(key_filename, 'r', encoding='latin-1', errors='ignore') as f:
+            header = f.read(100)
+            if "PuTTY-User-Key-File-" in header:
+                return paramiko.PKey.from_private_key_file(key_filename, password=passphrase)
+    except paramiko.PasswordRequiredException:
+        raise
+    except Exception:
+        pass
 
     key_classes = [
         paramiko.Ed25519Key,
@@ -172,11 +188,14 @@ class NativePTYSSHEngine(BaseProtocolEngine):
     """
 
     def __init__(self, hostname: str, port: int = 22, username: str = "", password: str = "",
-                 key_filename: Optional[str] = None, key_passphrase: Optional[str] = None, protocol: str = "SSH2"):
+                 key_filename: Optional[str] = None, key_passphrase: Optional[str] = None, protocol: str = "SSH2",
+                 agent_forwarding: bool = False, auto_reconnect: bool = False):
         super().__init__(hostname, port, username, password)
         self.key_filename = key_filename
         self.key_passphrase = key_passphrase
         self.protocol = protocol.upper()
+        self.agent_forwarding = agent_forwarding
+        self.auto_reconnect = auto_reconnect
 
         self.master_fd = None
         self.slave_fd = None
@@ -198,12 +217,17 @@ class NativePTYSSHEngine(BaseProtocolEngine):
             "-F", "/dev/null",
             "-o", "StrictHostKeyChecking=no",
             "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "ServerAliveInterval=15",
+            "-o", "ServerAliveCountMax=3",
             "-o", "Ciphers=aes128-cbc,3des-cbc,aes192-cbc,aes256-cbc,aes128-ctr,aes192-ctr,aes256-ctr",
             "-o", "KexAlgorithms=+diffie-hellman-group1-sha1,diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha1",
             "-o", "HostKeyAlgorithms=+ssh-rsa,rsa-sha2-256,rsa-sha2-512,ssh-ed25519",
             "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa,rsa-sha2-256,rsa-sha2-512",
             "-p", str(self.port)
         ])
+
+        if self.agent_forwarding:
+            cmd.append("-A")
 
         if self.key_filename and os.path.exists(self.key_filename):
             cmd.extend(["-i", self.key_filename])
@@ -282,6 +306,12 @@ class NativePTYSSHEngine(BaseProtocolEngine):
 
     def _read_loop(self):
         password_sent = False
+        warning_shown = False
+
+        if self.protocol == "SSH1" and self.output_callback and not warning_shown:
+            self.output_callback("\r\n\033[33m[SSH Security Warning]: Session connected using legacy SSH 1.5 protocol. Recommend updating remote server configuration.\033[0m\r\n")
+            warning_shown = True
+
         while not self._stop_event.is_set() and self.master_fd is not None:
             try:
                 r, _, _ = select.select([self.master_fd], [], [], 0.005)
@@ -488,12 +518,15 @@ class SSHEngine(BaseProtocolEngine):
 
     def __init__(self, hostname: str, port: int = 22, username: str = "", password: str = "",
                  key_filename: Optional[str] = None, key_passphrase: Optional[str] = None,
-                 legacy_mode: bool = True, protocol: str = "SSH2"):
+                 legacy_mode: bool = True, protocol: str = "SSH2",
+                 agent_forwarding: bool = False, auto_reconnect: bool = False):
         super().__init__(hostname, port, username, password)
         self.key_filename = key_filename
         self.key_passphrase = key_passphrase
         self.legacy_mode = legacy_mode
         self.protocol = protocol.upper()
+        self.agent_forwarding = agent_forwarding
+        self.auto_reconnect = auto_reconnect
 
         self.transport: Optional[paramiko.Transport] = None
         self.channel = None
@@ -531,7 +564,8 @@ class SSHEngine(BaseProtocolEngine):
 
             self.native_engine = NativePTYSSHEngine(
                 hostname=self.hostname, port=self.port, username=self.username, password=self.password,
-                key_filename=self.key_filename, key_passphrase=self.key_passphrase, protocol=self.protocol
+                key_filename=self.key_filename, key_passphrase=self.key_passphrase, protocol=self.protocol,
+                agent_forwarding=self.agent_forwarding, auto_reconnect=self.auto_reconnect
             )
             return self.native_engine.connect(on_output=on_output, term_type=term_type, width=width, height=height)
 
@@ -541,6 +575,16 @@ class SSHEngine(BaseProtocolEngine):
 
         try:
             sock = socket.create_connection((self.hostname, self.port), timeout=10)
+            # Enable TCP Keepalive on socket
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            if hasattr(socket, "IPPROTO_TCP"):
+                if hasattr(socket, "TCP_KEEPIDLE"):
+                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 15)
+                if hasattr(socket, "TCP_KEEPINTVL"):
+                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5)
+                if hasattr(socket, "TCP_KEEPCNT"):
+                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
+
             self.transport = paramiko.Transport(sock)
             configure_security_options(self.transport)
 
@@ -568,6 +612,11 @@ class SSHEngine(BaseProtocolEngine):
 
             # Open interactive PTY shell channel
             self.channel = self.transport.open_session()
+            if self.agent_forwarding:
+                try:
+                    paramiko.agent.AgentRequestHandler(self.channel)
+                except Exception:
+                    pass
             self.channel.get_pty(term=term_type, width=width, height=height)
             self.channel.invoke_shell()
 

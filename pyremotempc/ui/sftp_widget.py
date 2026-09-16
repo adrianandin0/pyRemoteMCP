@@ -405,7 +405,7 @@ class SFTPWidget(QWidget):
                     size_str = "<LINK>"
 
                 item = CustomTreeWidgetItem([entry, size_str, "rw-r--r--"])
-                item.setIcon(0, get_icon("folder") if is_dir else get_icon("log"))
+                item.setIcon(0, get_icon("folder") if is_dir else get_icon("file"))
                 item.setData(0, Qt.ItemDataRole.UserRole, full_path)
                 item.setData(1, Qt.ItemDataRole.UserRole, is_dir)
                 item.setData(1, Qt.ItemDataRole.UserRole + 1, size_bytes)
@@ -444,7 +444,7 @@ class SFTPWidget(QWidget):
             size_bytes = item.get("size", 0) if not is_dir else 0
             size_str = "<DIR>" if is_dir else f"{size_bytes} B"
             tree_item = CustomTreeWidgetItem([name, size_str, item.get("permissions", "")])
-            tree_item.setIcon(0, get_icon("folder") if is_dir else get_icon("log"))
+            tree_item.setIcon(0, get_icon("folder") if is_dir else get_icon("file"))
             tree_item.setData(0, Qt.ItemDataRole.UserRole, os.path.join(path, name))
             tree_item.setData(1, Qt.ItemDataRole.UserRole, is_dir)
             tree_item.setData(1, Qt.ItemDataRole.UserRole + 1, size_bytes)
@@ -713,6 +713,14 @@ class SFTPWidget(QWidget):
             except Exception as e:
                 QMessageBox.critical(self, "SFTP Error", f"Failed to delete remote item:\n{str(e)}")
 
+    def close(self):
+        try:
+            self.sftp_engine.disconnect()
+        except Exception:
+            pass
+        return super().close()
+
     def closeEvent(self, event):
         self.sftp_engine.disconnect()
         super().closeEvent(event)
+

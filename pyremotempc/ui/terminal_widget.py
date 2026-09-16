@@ -12,6 +12,7 @@ from PySide6.QtCore import Qt, Signal, QObject, QEvent
 from pyremotempc.engine.ssh_engine import SSHEngine
 from pyremotempc.engine.ssh1_engine import SSH1Engine
 from pyremotempc.engine.telnet_engine import TelnetEngine
+from pyremotempc.engine.serial_engine import SerialEngine
 from pyremotempc.config.settings import SettingsManager
 
 
@@ -406,7 +407,16 @@ class TerminalWidget(QWidget):
         proto = (node.protocol or "SSH2").upper()
         key_file = getattr(node, "key_path", "") or getattr(node, "private_key_file", "")
 
-        if proto == "TELNET":
+        if proto == "SERIAL":
+            self.engine = SerialEngine(
+                port=getattr(node, "serial_port", "") or node.hostname or "/dev/ttyUSB0",
+                baudrate=getattr(node, "baudrate", 9600),
+                data_bits=getattr(node, "data_bits", 8),
+                parity=getattr(node, "parity", "N"),
+                stop_bits=getattr(node, "stop_bits", 1.0),
+                flow_control=getattr(node, "flow_control", "None")
+            )
+        elif proto == "TELNET":
             self.engine = TelnetEngine(
                 hostname=node.hostname,
                 port=node.port if node.port else 23,
@@ -430,7 +440,9 @@ class TerminalWidget(QWidget):
                 key_filename=key_file,
                 key_passphrase=getattr(node, "key_passphrase", ""),
                 legacy_mode=getattr(node, "legacy_ssh", True),
-                protocol=proto
+                protocol=proto,
+                agent_forwarding=getattr(node, "agent_forwarding", False),
+                auto_reconnect=getattr(node, "auto_reconnect", False)
             )
 
         layout = QVBoxLayout(self)

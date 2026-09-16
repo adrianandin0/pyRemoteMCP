@@ -19,9 +19,11 @@ class ConnectionNode:
     domain: str = ""
     description: str = ""
     icon: str = "Server"
+    auto_reconnect: bool = False
 
     # SSH Specific
     legacy_ssh: bool = False  # Allows old ciphers, kex, host keys for legacy switches/servers
+    agent_forwarding: bool = False  # Enables SSH Agent Forwarding (-A)
     auth_method: str = "password"  # password, key, agent, interactive
     key_path: str = ""
     key_passphrase: str = ""
@@ -43,6 +45,14 @@ class ConnectionNode:
     # VNC Specific
     vnc_engine_type: str = "Auto"  # Auto, Native, System
     vnc_sec_type: str = "Auto"  # Auto, Standard (Type 2), UltraVNC MSLogon (Type 11), None (Type 1)
+
+    # Serial Specific
+    serial_port: str = "/dev/ttyUSB0"
+    baudrate: int = 9600
+    data_bits: int = 8
+    parity: str = "N"  # N, E, O, M, S
+    stop_bits: float = 1.0  # 1, 1.5, 2
+    flow_control: str = "None"  # None, RTS/CTS, XON/XOFF
 
 
     # Folder / Inheritance
@@ -73,7 +83,9 @@ class ConnectionNode:
             "domain": self.domain,
             "description": self.description,
             "icon": self.icon,
+            "auto_reconnect": self.auto_reconnect,
             "legacy_ssh": self.legacy_ssh,
+            "agent_forwarding": self.agent_forwarding,
             "auth_method": self.auth_method,
             "key_path": self.key_path or self.private_key_file,
             "key_passphrase": self.key_passphrase,
@@ -81,5 +93,11 @@ class ConnectionNode:
             "resolution": self.resolution,
             "rdp_security": self.rdp_security,
             "redirect_drives": self.redirect_drives,
+            "serial_port": self.serial_port,
+            "baudrate": self.baudrate,
+            "data_bits": self.data_bits,
+            "parity": self.parity,
+            "stop_bits": self.stop_bits,
+            "flow_control": self.flow_control,
             "children": [child.to_dict() for child in self.children],
         }

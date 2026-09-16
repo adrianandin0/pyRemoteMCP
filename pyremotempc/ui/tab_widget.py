@@ -127,6 +127,10 @@ class SessionTabWidget(QTabWidget):
             self.removeTab(0)
 
         proto = node.protocol.upper()
+        if proto in ("SFTP", "FTP"):
+            self._open_standalone_sftp_session(node)
+            return
+
         engine_cls = PluginManager.instance().get_engine_class(proto)
 
         if engine_cls is RDPEngine:
@@ -135,6 +139,44 @@ class SessionTabWidget(QTabWidget):
             self._open_vnc_session(node)
         else:
             self._open_ssh_session(node)
+
+    def _open_standalone_sftp_session(self, node: ConnectionNode):
+        """Opens a standalone full-tab SFTP/FTP File Manager session."""
+        lang = self.settings.language
+        sftp_container = QWidget(self)
+        vbox = QVBoxLayout(sftp_container)
+        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.setSpacing(0)
+
+        # Action Bar
+        action_bar = QWidget(sftp_container)
+        action_bar.setStyleSheet("background-color: #252526; border-bottom: 1px solid #3c3c3c;")
+        act_layout = QHBoxLayout(action_bar)
+        act_layout.setContentsMargins(6, 2, 6, 2)
+
+        lbl_info = QLabel(f"{format_tab_title(node)} ({node.hostname}:{node.port})", action_bar)
+        lbl_info.setStyleSheet("color: #cccccc; font-size: 12px; font-weight: normal;")
+        act_layout.addWidget(lbl_info)
+        act_layout.addStretch()
+
+        btn_reconnect = QPushButton(tr("connect_sftp", lang), action_bar)
+        btn_reconnect.setIcon(get_icon("connect"))
+        act_layout.addWidget(btn_reconnect)
+
+        vbox.addWidget(action_bar)
+
+        sftp_panel = SFTPWidget(node, ssh_engine=None, settings_manager=self.settings, parent=sftp_container)
+        vbox.addWidget(sftp_panel)
+
+        btn_reconnect.clicked.connect(sftp_panel.connect_sftp)
+
+        sftp_container.sftp_panel = sftp_panel
+        sftp_container.node = node
+        sftp_container.lbl_info = lbl_info
+
+        idx = self.addTab(sftp_container, get_node_icon(node), format_tab_title(node))
+        self.setCurrentIndex(idx)
+        QTimer.singleShot(100, sftp_panel.connect_sftp)
 
     def _open_ssh_session(self, node: ConnectionNode):
         lang = self.settings.language

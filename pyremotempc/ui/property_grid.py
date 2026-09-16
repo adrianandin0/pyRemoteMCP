@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt, Signal, QSize
 from pyremotempc.config.models import ConnectionNode
 from pyremotempc.ui.icon_manager import get_icon
 from pyremotempc.plugins.plugin_manager import PluginManager
+from pyremotempc.utils.serial_utils import get_available_serial_ports
 
 
 class PropertyGridScrollContent(QWidget):
@@ -142,11 +143,21 @@ class PropertyGridWidget(QWidget):
         self.form_layout.addRow(self.lbl_private_key, self.key_container)
 
         # Protocol Specific Settings
+        self.lbl_auto_reconnect = QLabel("Auto Reconnect:")
+        self.chk_auto_reconnect = QCheckBox("Enable Auto Reconnect on Drop")
+        self.chk_auto_reconnect.toggled.connect(self._on_field_edited)
+        self.form_layout.addRow(self.lbl_auto_reconnect, self.chk_auto_reconnect)
+
         self.lbl_ssh_options = QLabel("SSH Options:")
         self.chk_legacy_ssh = QCheckBox("Enable Legacy Security")
         self.chk_legacy_ssh.setChecked(True)
         self.chk_legacy_ssh.toggled.connect(self._on_field_edited)
         self.form_layout.addRow(self.lbl_ssh_options, self.chk_legacy_ssh)
+
+        self.lbl_agent_forwarding = QLabel("SSH Agent:")
+        self.chk_agent_forwarding = QCheckBox("Enable Agent Forwarding (-A)")
+        self.chk_agent_forwarding.toggled.connect(self._on_field_edited)
+        self.form_layout.addRow(self.lbl_agent_forwarding, self.chk_agent_forwarding)
 
         self.lbl_rdp_sec = QLabel("RDP Security:")
         self.cmb_rdp_sec = QComboBox()
@@ -223,8 +234,84 @@ class PropertyGridWidget(QWidget):
         self.cmb_vnc_sec.currentTextChanged.connect(self._on_field_edited)
         self.form_layout.addRow(self.lbl_vnc_sec, self.cmb_vnc_sec)
 
+        # Serial Specific Settings
+        self.lbl_serial_port = QLabel("Serial Port:")
+        self.cmb_serial_port = QComboBox()
+        self.cmb_serial_port.setMinimumWidth(30)
+        self.cmb_serial_port.setEditable(True)
+
+        self.btn_refresh_serial = QPushButton()
+        self.btn_refresh_serial.setIcon(get_icon("refresh"))
+        self.btn_refresh_serial.setIconSize(QSize(16, 16))
+        self.btn_refresh_serial.setFixedSize(22, 22)
+        self.btn_refresh_serial.setToolTip("Rescan / Refresh available serial ports")
+        self.btn_refresh_serial.setStyleSheet(
+            "QPushButton { border: none; background: transparent; padding: 2px; } "
+            "QPushButton:hover { background-color: rgba(255, 255, 255, 30); border-radius: 3px; } "
+            "QPushButton:pressed { background-color: rgba(255, 255, 255, 50); border-radius: 3px; }"
+        )
+        self.btn_refresh_serial.clicked.connect(self.refresh_serial_ports)
+
+        self.serial_port_container = QWidget()
+        serial_layout = QHBoxLayout(self.serial_port_container)
+        serial_layout.setContentsMargins(0, 0, 0, 0)
+        serial_layout.setSpacing(2)
+        serial_layout.addWidget(self.cmb_serial_port)
+        serial_layout.addWidget(self.btn_refresh_serial)
+
+        self.refresh_serial_ports()
+        self.cmb_serial_port.currentTextChanged.connect(self._on_field_edited)
+        self.form_layout.addRow(self.lbl_serial_port, self.serial_port_container)
+
+        self.lbl_baudrate = QLabel("Baud Rate:")
+        self.cmb_baudrate = QComboBox()
+        self.cmb_baudrate.setMinimumWidth(30)
+        self.cmb_baudrate.addItems(["9600", "115200", "57600", "38400", "19200", "14400", "4800", "2400", "1200", "600", "300", "110"])
+        self.cmb_baudrate.currentTextChanged.connect(self._on_field_edited)
+        self.form_layout.addRow(self.lbl_baudrate, self.cmb_baudrate)
+
+        self.lbl_data_bits = QLabel("Data Bits:")
+        self.cmb_data_bits = QComboBox()
+        self.cmb_data_bits.setMinimumWidth(30)
+        self.cmb_data_bits.addItems(["8", "7", "6", "5"])
+        self.cmb_data_bits.currentTextChanged.connect(self._on_field_edited)
+        self.form_layout.addRow(self.lbl_data_bits, self.cmb_data_bits)
+
+        self.lbl_parity = QLabel("Parity:")
+        self.cmb_parity = QComboBox()
+        self.cmb_parity.setMinimumWidth(30)
+        self.cmb_parity.addItems(["N (None)", "E (Even)", "O (Odd)", "M (Mark)", "S (Space)"])
+        self.cmb_parity.currentTextChanged.connect(self._on_field_edited)
+        self.form_layout.addRow(self.lbl_parity, self.cmb_parity)
+
+        self.lbl_stop_bits = QLabel("Stop Bits:")
+        self.cmb_stop_bits = QComboBox()
+        self.cmb_stop_bits.setMinimumWidth(30)
+        self.cmb_stop_bits.addItems(["1", "1.5", "2"])
+        self.cmb_stop_bits.currentTextChanged.connect(self._on_field_edited)
+        self.form_layout.addRow(self.lbl_stop_bits, self.cmb_stop_bits)
+
+        self.lbl_flow_control = QLabel("Flow Control:")
+        self.cmb_flow_control = QComboBox()
+        self.cmb_flow_control.setMinimumWidth(30)
+        self.cmb_flow_control.addItems(["None", "RTS/CTS", "XON/XOFF"])
+        self.cmb_flow_control.currentTextChanged.connect(self._on_field_edited)
+        self.form_layout.addRow(self.lbl_flow_control, self.cmb_flow_control)
+
         scroll.setWidget(scroll_content)
         main_layout.addWidget(scroll)
+
+    def refresh_serial_ports(self):
+        """Scans and updates available serial ports in combo box."""
+        current = self.cmb_serial_port.currentText()
+        self.cmb_serial_port.clear()
+        ports = get_available_serial_ports()
+        for dev, label in ports:
+            self.cmb_serial_port.addItem(label, dev)
+        if current and self.cmb_serial_port.findText(current) != -1:
+            self.cmb_serial_port.setCurrentText(current)
+        elif current and not current.startswith("No ports"):
+            self.cmb_serial_port.setCurrentText(current)
 
     def _set_row_visible(self, label, field, visible: bool):
         label.setVisible(visible)
@@ -249,10 +336,12 @@ class PropertyGridWidget(QWidget):
             self._set_row_visible(self.lbl_domain, self.txt_domain, False)
             self._set_row_visible(self.lbl_username, self.txt_username, False)
             self._set_row_visible(self.lbl_password, self.txt_password, False)
+            self._set_row_visible(self.lbl_auto_reconnect, self.chk_auto_reconnect, False)
 
             # SSH
             self._set_row_visible(self.lbl_private_key, self.key_container, False)
             self._set_row_visible(self.lbl_ssh_options, self.chk_legacy_ssh, False)
+            self._set_row_visible(self.lbl_agent_forwarding, self.chk_agent_forwarding, False)
 
             # RDP
             self._set_row_visible(self.lbl_rdp_sec, self.cmb_rdp_sec, False)
@@ -265,24 +354,46 @@ class PropertyGridWidget(QWidget):
             # VNC
             self._set_row_visible(self.lbl_vnc_engine, self.cmb_vnc_engine, False)
             self._set_row_visible(self.lbl_vnc_sec, self.cmb_vnc_sec, False)
-        else:
-            # Connection Nodes:
-            self._set_row_visible(self.lbl_icon, self.cmb_icon, True)
-            self._set_row_visible(self.lbl_hostname, self.txt_hostname, True)
-            self._set_row_visible(self.lbl_protocol, self.cmb_protocol, True)
-            self._set_row_visible(self.lbl_port, self.spn_port, True)
-            self._set_row_visible(self.lbl_domain, self.txt_domain, True)
-            self._set_row_visible(self.lbl_username, self.txt_username, True)
-            self._set_row_visible(self.lbl_password, self.txt_password, True)
 
+            # Serial
+            self._set_row_visible(self.lbl_serial_port, self.serial_port_container, False)
+            self._set_row_visible(self.lbl_baudrate, self.cmb_baudrate, False)
+            self._set_row_visible(self.lbl_data_bits, self.cmb_data_bits, False)
+            self._set_row_visible(self.lbl_parity, self.cmb_parity, False)
+            self._set_row_visible(self.lbl_stop_bits, self.cmb_stop_bits, False)
+            self._set_row_visible(self.lbl_flow_control, self.cmb_flow_control, False)
+        else:
             proto = self.cmb_protocol.currentText().upper()
+            is_serial = (proto == "SERIAL")
             is_ssh = proto in ("SSH", "SSH2", "SSH1")
+            is_sftp = (proto == "SFTP")
             is_rdp = (proto == "RDP")
             is_vnc = (proto == "VNC")
 
-            # SSH Options
-            self._set_row_visible(self.lbl_private_key, self.key_container, is_ssh)
+            # Connection Nodes:
+            self._set_row_visible(self.lbl_icon, self.cmb_icon, True)
+            self._set_row_visible(self.lbl_protocol, self.cmb_protocol, True)
+
+            # Hide standard network credentials for Serial
+            self._set_row_visible(self.lbl_hostname, self.txt_hostname, not is_serial)
+            self._set_row_visible(self.lbl_port, self.spn_port, not is_serial)
+            self._set_row_visible(self.lbl_domain, self.txt_domain, not is_serial)
+            self._set_row_visible(self.lbl_username, self.txt_username, not is_serial)
+            self._set_row_visible(self.lbl_password, self.txt_password, not is_serial)
+            self._set_row_visible(self.lbl_auto_reconnect, self.chk_auto_reconnect, not is_serial)
+
+            # Serial Options
+            self._set_row_visible(self.lbl_serial_port, self.serial_port_container, is_serial)
+            self._set_row_visible(self.lbl_baudrate, self.cmb_baudrate, is_serial)
+            self._set_row_visible(self.lbl_data_bits, self.cmb_data_bits, is_serial)
+            self._set_row_visible(self.lbl_parity, self.cmb_parity, is_serial)
+            self._set_row_visible(self.lbl_stop_bits, self.cmb_stop_bits, is_serial)
+            self._set_row_visible(self.lbl_flow_control, self.cmb_flow_control, is_serial)
+
+            # SSH / SFTP Options
+            self._set_row_visible(self.lbl_private_key, self.key_container, is_ssh or is_sftp)
             self._set_row_visible(self.lbl_ssh_options, self.chk_legacy_ssh, is_ssh)
+            self._set_row_visible(self.lbl_agent_forwarding, self.chk_agent_forwarding, is_ssh)
 
             # RDP Options
             self._set_row_visible(self.lbl_rdp_sec, self.cmb_rdp_sec, is_rdp)
@@ -308,13 +419,18 @@ class PropertyGridWidget(QWidget):
         self.txt_description.setText(node.description or "")
         self.cmb_icon.setCurrentText(node.icon or "Server")
         self.txt_hostname.setText(node.hostname or "")
-        self.cmb_protocol.setCurrentText(node.protocol or "SSH2")
+        proto_val = node.protocol or "SSH"
+        if proto_val in ("SSH2", "SSH1") and self.cmb_protocol.findText("SSH") >= 0:
+            proto_val = "SSH"
+        self.cmb_protocol.setCurrentText(proto_val)
         self.spn_port.setValue(node.port if node.port else 22)
         self.txt_username.setText(node.username or "")
         self.txt_password.setText(node.password or "")
         self.txt_domain.setText(node.domain or "")
+        self.chk_auto_reconnect.setChecked(getattr(node, "auto_reconnect", False))
         self.txt_private_key.setText(getattr(node, "private_key_file", ""))
         self.chk_legacy_ssh.setChecked(getattr(node, "legacy_ssh", True))
+        self.chk_agent_forwarding.setChecked(getattr(node, "agent_forwarding", False))
         self.cmb_rdp_sec.setCurrentText(getattr(node, "rdp_security", "Auto"))
         self.chk_rdp_cert_ignore.setChecked(getattr(node, "rdp_cert_ignore", True))
         self.txt_rdp_cert_path.setText(getattr(node, "rdp_cert_path", ""))
@@ -323,6 +439,16 @@ class PropertyGridWidget(QWidget):
         self.txt_rdp_shared_folder.setText(getattr(node, "rdp_shared_folder", ""))
         self.cmb_vnc_engine.setCurrentText(getattr(node, "vnc_engine_type", "Auto"))
         self.cmb_vnc_sec.setCurrentText(getattr(node, "vnc_sec_type", "Auto"))
+
+        self.refresh_serial_ports()
+        self.cmb_serial_port.setCurrentText(getattr(node, "serial_port", "/dev/ttyUSB0"))
+        self.cmb_baudrate.setCurrentText(str(getattr(node, "baudrate", 9600)))
+        self.cmb_data_bits.setCurrentText(str(getattr(node, "data_bits", 8)))
+        parity_val = getattr(node, "parity", "N").upper()
+        parity_map = {"N": "N (None)", "E": "E (Even)", "O": "O (Odd)", "M": "M (Mark)", "S": "S (Space)"}
+        self.cmb_parity.setCurrentText(parity_map.get(parity_val, "N (None)"))
+        self.cmb_stop_bits.setCurrentText(str(getattr(node, "stop_bits", 1)))
+        self.cmb_flow_control.setCurrentText(getattr(node, "flow_control", "None"))
 
         is_conn = not node.is_container()
         self.txt_hostname.setEnabled(is_conn)
@@ -401,8 +527,10 @@ class PropertyGridWidget(QWidget):
         self.current_node.username = self.txt_username.text()
         self.current_node.password = self.txt_password.text()
         self.current_node.domain = self.txt_domain.text()
+        self.current_node.auto_reconnect = self.chk_auto_reconnect.isChecked()
         self.current_node.private_key_file = self.txt_private_key.text()
         self.current_node.legacy_ssh = self.chk_legacy_ssh.isChecked()
+        self.current_node.agent_forwarding = self.chk_agent_forwarding.isChecked()
         self.current_node.rdp_security = self.cmb_rdp_sec.currentText()
         self.current_node.rdp_cert_ignore = self.chk_rdp_cert_ignore.isChecked()
         self.current_node.rdp_cert_path = self.txt_rdp_cert_path.text()
@@ -411,4 +539,23 @@ class PropertyGridWidget(QWidget):
         self.current_node.rdp_shared_folder = self.txt_rdp_shared_folder.text()
         self.current_node.vnc_engine_type = self.cmb_vnc_engine.currentText()
         self.current_node.vnc_sec_type = self.cmb_vnc_sec.currentText()
+
+        port_text = self.cmb_serial_port.currentText()
+        port_data = self.cmb_serial_port.currentData()
+        self.current_node.serial_port = port_data if port_data else port_text
+
+        try:
+            self.current_node.baudrate = int(self.cmb_baudrate.currentText())
+        except Exception:
+            self.current_node.baudrate = 9600
+        try:
+            self.current_node.data_bits = int(self.cmb_data_bits.currentText())
+        except Exception:
+            self.current_node.data_bits = 8
+        self.current_node.parity = self.cmb_parity.currentText()[0]
+        try:
+            self.current_node.stop_bits = float(self.cmb_stop_bits.currentText())
+        except Exception:
+            self.current_node.stop_bits = 1.0
+        self.current_node.flow_control = self.cmb_flow_control.currentText()
         self.property_changed.emit(self.current_node)

@@ -19,6 +19,7 @@ from pyremotempc.ui.preferences_dialog import PreferencesDialog
 from pyremotempc.ui.dialogs.master_password_dialog import MasterPasswordDialog
 from pyremotempc.ui.icon_manager import get_icon
 from pyremotempc.plugins.plugin_manager import PluginManager
+from pyremotempc.utils.serial_utils import get_available_serial_ports
 
 
 def get_user_config_dir() -> str:
@@ -369,14 +370,34 @@ class MainWindow(QMainWindow):
         qc_toolbar.setIconSize(QSize(20, 20))
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, qc_toolbar)
 
-        qc_toolbar.addWidget(QLabel(f" {tr('quick_connect', lang)}: "))
+        self.lbl_qc_host = QLabel(f" {tr('quick_connect', lang)}: ")
+        self.act_qc_host_lbl = qc_toolbar.addWidget(self.lbl_qc_host)
 
         self.qc_host = QLineEdit()
         self.qc_host.setPlaceholderText("Hostname / IP")
         self.qc_host.setMinimumWidth(180)
         self.qc_host.setMaximumWidth(260)
         self.qc_host.returnPressed.connect(self._exec_quick_connect)
-        qc_toolbar.addWidget(self.qc_host)
+        self.act_qc_host = qc_toolbar.addWidget(self.qc_host)
+
+        # Serial Port Selector (hidden by default)
+        self.lbl_qc_serial_port = QLabel(" Serial Port: ")
+        self.act_qc_serial_port_lbl = qc_toolbar.addWidget(self.lbl_qc_serial_port)
+        self.act_qc_serial_port_lbl.setVisible(False)
+
+        self.qc_serial_port = QComboBox()
+        self.qc_serial_port.setEditable(True)
+        self.qc_serial_port.setMinimumWidth(180)
+        self.act_qc_serial_port = qc_toolbar.addWidget(self.qc_serial_port)
+        self.act_qc_serial_port.setVisible(False)
+
+        self.act_qc_refresh_serial = QAction(get_icon("refresh"), "", self)
+        self.act_qc_refresh_serial.setToolTip("Rescan / Refresh available serial ports")
+        self.act_qc_refresh_serial.triggered.connect(self._refresh_qc_serial_ports)
+        qc_toolbar.addAction(self.act_qc_refresh_serial)
+        self.act_qc_refresh_serial.setVisible(False)
+
+        self._refresh_qc_serial_ports()
 
         qc_toolbar.addWidget(QLabel(f" {tr('proto', lang)}: "))
         self.qc_proto = QComboBox()
@@ -384,43 +405,60 @@ class MainWindow(QMainWindow):
         if protocols:
             self.qc_proto.addItems(protocols)
         else:
-            self.qc_proto.addItems(["SSH", "SSH1", "RDP", "VNC", "TELNET"])
+            self.qc_proto.addItems(["SSH", "SSH1", "RDP", "VNC", "TELNET", "SERIAL"])
         self.qc_proto.currentTextChanged.connect(self._on_qc_proto_changed)
         qc_toolbar.addWidget(self.qc_proto)
 
-        qc_toolbar.addWidget(QLabel(f" {tr('port', lang)}: "))
+        # Serial Baud Rate (hidden by default)
+        self.lbl_qc_baud = QLabel(" Baud: ")
+        self.qc_baud = QComboBox()
+        self.qc_baud.addItems(["9600", "115200", "57600", "38400", "19200", "14400", "4800", "2400", "1200", "600", "300", "110"])
+        self.act_qc_baud_lbl = qc_toolbar.addWidget(self.lbl_qc_baud)
+        self.act_qc_baud = qc_toolbar.addWidget(self.qc_baud)
+        self.act_qc_baud_lbl.setVisible(False)
+        self.act_qc_baud.setVisible(False)
+
+        # Network TCP Port
+        self.lbl_qc_port = QLabel(f" {tr('port', lang)}: ")
         self.qc_port = QSpinBox()
         self.qc_port.setRange(1, 65535)
         self.qc_port.setValue(22)
-        qc_toolbar.addWidget(self.qc_port)
+        self.act_qc_port_lbl = qc_toolbar.addWidget(self.lbl_qc_port)
+        self.act_qc_port = qc_toolbar.addWidget(self.qc_port)
 
-        qc_toolbar.addWidget(QLabel(f" {tr('domain', lang)}: "))
+        # Domain
+        self.lbl_qc_domain = QLabel(f" {tr('domain', lang)}: ")
         self.qc_domain = QLineEdit()
         self.qc_domain.setPlaceholderText(tr("domain", lang))
         self.qc_domain.setMaximumWidth(120)
         self.qc_domain.returnPressed.connect(self._exec_quick_connect)
-        qc_toolbar.addWidget(self.qc_domain)
+        self.act_qc_domain_lbl = qc_toolbar.addWidget(self.lbl_qc_domain)
+        self.act_qc_domain = qc_toolbar.addWidget(self.qc_domain)
 
-        qc_toolbar.addWidget(QLabel(f" {tr('user', lang)}: "))
+        # User
+        self.lbl_qc_user = QLabel(f" {tr('user', lang)}: ")
         self.qc_user = QLineEdit()
         self.qc_user.setPlaceholderText(tr("user", lang))
         self.qc_user.setMaximumWidth(120)
         self.qc_user.returnPressed.connect(self._exec_quick_connect)
-        qc_toolbar.addWidget(self.qc_user)
+        self.act_qc_user_lbl = qc_toolbar.addWidget(self.lbl_qc_user)
+        self.act_qc_user = qc_toolbar.addWidget(self.qc_user)
 
-        qc_toolbar.addWidget(QLabel(f" {tr('pass', lang)}: "))
+        # Password
+        self.lbl_qc_pass = QLabel(f" {tr('pass', lang)}: ")
         self.qc_pass = QLineEdit()
         self.qc_pass.setEchoMode(QLineEdit.EchoMode.Password)
         self.qc_pass.setPlaceholderText(tr("pass", lang))
         self.qc_pass.setMaximumWidth(120)
         self.qc_pass.returnPressed.connect(self._exec_quick_connect)
-        qc_toolbar.addWidget(self.qc_pass)
+        self.act_qc_pass_lbl = qc_toolbar.addWidget(self.lbl_qc_pass)
+        self.act_qc_pass = qc_toolbar.addWidget(self.qc_pass)
 
         qc_toolbar.addSeparator()
 
         # Quick Connect Action Button
         act_qc_connect = QAction(get_icon("connect"), f" {tr('connect', lang)}", self)
-        act_qc_connect.setToolTip("Connect directly to Hostname / IP")
+        act_qc_connect.setToolTip("Connect directly to Hostname / IP or Serial Port")
         act_qc_connect.triggered.connect(self._exec_quick_connect)
         qc_toolbar.addAction(act_qc_connect)
 
@@ -430,28 +468,114 @@ class MainWindow(QMainWindow):
         act_qc_save.triggered.connect(self._exec_quick_save)
         qc_toolbar.addAction(act_qc_save)
 
+    def _refresh_qc_serial_ports(self):
+        """Refreshes active serial ports in Quick Connect combo box."""
+        current = self.qc_serial_port.currentText()
+        self.qc_serial_port.clear()
+        for dev, label in get_available_serial_ports():
+            self.qc_serial_port.addItem(label, dev)
+        if current and self.qc_serial_port.findText(current) != -1:
+            self.qc_serial_port.setCurrentText(current)
+        elif current and not current.startswith("No ports"):
+            self.qc_serial_port.setCurrentText(current)
+
     def _on_qc_proto_changed(self, proto: str):
-        plugin = PluginManager.instance().get_plugin(proto)
-        if plugin and plugin.default_port > 0:
-            self.qc_port.setValue(plugin.default_port)
+        is_serial = (proto.upper() == "SERIAL")
+        if is_serial:
+            self.act_qc_host_lbl.setVisible(False)
+            self.act_qc_host.setVisible(False)
+
+            self.act_qc_serial_port_lbl.setVisible(True)
+            self.act_qc_serial_port.setVisible(True)
+            self.act_qc_refresh_serial.setVisible(True)
+
+            self.act_qc_baud_lbl.setVisible(True)
+            self.act_qc_baud.setVisible(True)
+
+            self.act_qc_port_lbl.setVisible(False)
+            self.act_qc_port.setVisible(False)
+
+            self.act_qc_domain_lbl.setVisible(False)
+            self.act_qc_domain.setVisible(False)
+
+            self.act_qc_user_lbl.setVisible(False)
+            self.act_qc_user.setVisible(False)
+
+            self.act_qc_pass_lbl.setVisible(False)
+            self.act_qc_pass.setVisible(False)
+        else:
+            self.act_qc_host_lbl.setVisible(True)
+            self.act_qc_host.setVisible(True)
+            self.qc_host.setPlaceholderText("Hostname / IP")
+
+            self.act_qc_serial_port_lbl.setVisible(False)
+            self.act_qc_serial_port.setVisible(False)
+            self.act_qc_refresh_serial.setVisible(False)
+
+            self.act_qc_baud_lbl.setVisible(False)
+            self.act_qc_baud.setVisible(False)
+
+            self.act_qc_port_lbl.setVisible(True)
+            self.act_qc_port.setVisible(True)
+
+            self.act_qc_domain_lbl.setVisible(True)
+            self.act_qc_domain.setVisible(True)
+
+            self.act_qc_user_lbl.setVisible(True)
+            self.act_qc_user.setVisible(True)
+
+            self.act_qc_pass_lbl.setVisible(True)
+            self.act_qc_pass.setVisible(True)
+
+            plugin = PluginManager.instance().get_plugin(proto)
+            if plugin and plugin.default_port > 0:
+                self.qc_port.setValue(plugin.default_port)
 
     def _exec_quick_connect(self):
-        host = self.qc_host.text().strip()
-        if not host:
-            QMessageBox.warning(self, tr("quick_connect", self.settings.language), "Please enter a valid Hostname or IP address.")
-            return
+        proto = self.qc_proto.currentText().upper()
 
-        quick_node = ConnectionNode(
-            name=host,
-            node_type="Connection",
-            hostname=host,
-            protocol=self.qc_proto.currentText(),
-            port=self.qc_port.value(),
-            username=self.qc_user.text().strip(),
-            password=self.qc_pass.text(),
-            domain=self.qc_domain.text().strip(),
-            legacy_ssh=True
-        )
+        if proto == "SERIAL":
+            port_text = self.qc_serial_port.currentText().strip()
+            port_data = self.qc_serial_port.currentData()
+            serial_port = port_data if port_data else port_text
+
+            if not serial_port or serial_port.startswith("No ports"):
+                err_title = tr("quick_connect", self.settings.language)
+                QMessageBox.warning(self, err_title, "Please select or enter a valid Serial Port (e.g. /dev/ttyUSB0 or COM1).")
+                return
+
+            try:
+                baud = int(self.qc_baud.currentText())
+            except Exception:
+                baud = 9600
+
+            quick_node = ConnectionNode(
+                name=f"Serial ({serial_port})",
+                node_type="Connection",
+                protocol="SERIAL",
+                serial_port=serial_port,
+                baudrate=baud,
+                hostname=""
+            )
+        else:
+            host = self.qc_host.text().strip()
+            if not host:
+                err_title = tr("quick_connect", self.settings.language)
+                QMessageBox.warning(self, err_title, "Please enter a valid Hostname or IP address.")
+                return
+
+            quick_node = ConnectionNode(
+                name=host,
+                node_type="Connection",
+                hostname=host,
+                protocol=self.qc_proto.currentText(),
+                port=self.qc_port.value(),
+                username=self.qc_user.text().strip(),
+                password=self.qc_pass.text(),
+                domain=self.qc_domain.text().strip(),
+                legacy_ssh=True
+            )
+
         # Clear focus from quick connect input fields so Enter key goes to terminal
         self.qc_host.clearFocus()
         self.qc_domain.clearFocus()
@@ -461,28 +585,62 @@ class MainWindow(QMainWindow):
         self.session_tabs.open_session(quick_node)
 
     def _exec_quick_save(self):
-        host = self.qc_host.text().strip()
-        if not host:
-            QMessageBox.warning(self, tr("save_conn", self.settings.language), "Please enter a valid Hostname or IP address to save.")
-            return
+        proto = self.qc_proto.currentText().upper()
 
-        conn_name, ok = QInputDialog.getText(
-            self, tr("save_conn", self.settings.language), "Enter a name for this connection:", QLineEdit.EchoMode.Normal, host
-        )
-        if not ok or not conn_name.strip():
-            conn_name = host
+        if proto == "SERIAL":
+            port_text = self.qc_serial_port.currentText().strip()
+            port_data = self.qc_serial_port.currentData()
+            serial_port = port_data if port_data else port_text
 
-        new_node = ConnectionNode(
-            name=conn_name.strip(),
-            node_type="Connection",
-            hostname=host,
-            protocol=self.qc_proto.currentText(),
-            port=self.qc_port.value(),
-            username=self.qc_user.text().strip(),
-            password=self.qc_pass.text(),
-            domain=self.qc_domain.text().strip(),
-            legacy_ssh=True
-        )
+            if not serial_port or serial_port.startswith("No ports"):
+                err_title = tr("save_conn", self.settings.language)
+                QMessageBox.warning(self, err_title, "Please select or enter a valid Serial Port to save.")
+                return
+
+            try:
+                baud = int(self.qc_baud.currentText())
+            except Exception:
+                baud = 9600
+
+            default_name = f"Serial ({serial_port})"
+            conn_name, ok = QInputDialog.getText(
+                self, tr("save_conn", self.settings.language), "Enter a name for this serial connection:", QLineEdit.EchoMode.Normal, default_name
+            )
+            if not ok or not conn_name.strip():
+                conn_name = default_name
+
+            new_node = ConnectionNode(
+                name=conn_name.strip(),
+                node_type="Connection",
+                protocol="SERIAL",
+                serial_port=serial_port,
+                baudrate=baud,
+                hostname=""
+            )
+        else:
+            host = self.qc_host.text().strip()
+            if not host:
+                err_title = tr("save_conn", self.settings.language)
+                QMessageBox.warning(self, err_title, "Please enter a valid Hostname or IP address to save.")
+                return
+
+            conn_name, ok = QInputDialog.getText(
+                self, tr("save_conn", self.settings.language), "Enter a name for this connection:", QLineEdit.EchoMode.Normal, host
+            )
+            if not ok or not conn_name.strip():
+                conn_name = host
+
+            new_node = ConnectionNode(
+                name=conn_name.strip(),
+                node_type="Connection",
+                hostname=host,
+                protocol=self.qc_proto.currentText(),
+                port=self.qc_port.value(),
+                username=self.qc_user.text().strip(),
+                password=self.qc_pass.text(),
+                domain=self.qc_domain.text().strip(),
+                legacy_ssh=True
+            )
 
         parent_node = self.tree_widget.get_selected_node() or self.tree_widget.root_node
         self.tree_widget.add_new_connection(parent_node=parent_node, new_node=new_node)
