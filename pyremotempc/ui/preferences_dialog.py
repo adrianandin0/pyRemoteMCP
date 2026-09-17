@@ -25,7 +25,8 @@ class PreferencesDialog(QDialog):
         self.master_key_mgr = MasterKeyManager(self.settings)
 
         self.setWindowTitle(f"{tr('preferences', self.lang)} - pyRemoteMPC")
-        self.setMinimumSize(540, 440)
+        self.setMinimumSize(680, 480)
+        self.resize(680, 480)
 
         main_layout = QVBoxLayout(self)
 
@@ -175,8 +176,10 @@ class PreferencesDialog(QDialog):
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        group_rdp = QGroupBox("RDP && Remote Desktop Settings", tab)
-        form_rdp = QFormLayout(group_rdp)
+        group_rdp = QGroupBox("RDP and Remote Desktop Settings", tab)
+        vbox_rdp = QVBoxLayout(group_rdp)
+
+        form_rdp = QFormLayout()
 
         self.chk_rdp_clipboard = QCheckBox("Enable Clipboard Sharing (+clipboard)", group_rdp)
         self.chk_rdp_clipboard.setChecked(self.settings.rdp_enable_clipboard)
@@ -197,20 +200,26 @@ class PreferencesDialog(QDialog):
         folder_layout.addWidget(btn_browse_rdp)
 
         form_rdp.addRow("RDP Shared Local Folder:", folder_layout)
+        vbox_rdp.addLayout(form_rdp)
 
-        lbl_info = QLabel(
-            "📁 Shared Drive Mapping: The configured folder will be automatically mapped as a network drive "
-            "('\\\\tsclient\\Shared' or drive letter) inside all remote Windows RDP sessions.\n"
-            "📋 Clipboard: Allows seamless copy && paste of text and data between Linux and RDP servers.",
-            group_rdp
-        )
+        lbl_info = QLabel(group_rdp)
         lbl_info.setWordWrap(True)
-        lbl_info.setStyleSheet("color: #3b82f6; font-size: 11px; font-weight: normal; margin-top: 8px;")
-        form_rdp.addRow(lbl_info)
+        lbl_info.setTextFormat(Qt.TextFormat.RichText)
+        lbl_info.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        lbl_info.setStyleSheet(
+            "QLabel { color: #3b82f6; font-size: 11px; font-weight: normal; "
+            "background-color: #1e1e1e; border: 1px solid #3c3c3c; border-radius: 4px; padding: 10px; margin-top: 10px; text-align: left; }"
+        )
+        lbl_info.setText(
+            "<b>Shared Drive Mapping:</b> The configured folder will be automatically mapped as a network drive "
+            "('<i>\\\\tsclient\\Shared</i>' or drive letter) inside all remote Windows RDP sessions.<br><br>"
+            "<b>Clipboard:</b> Allows seamless copy and paste of text and data between Linux and RDP servers."
+        )
+        vbox_rdp.addWidget(lbl_info)
 
         layout.addWidget(group_rdp)
         layout.addStretch()
-        self.tab_widget.addTab(tab, get_icon("windows"), "RDP && Drives")
+        self.tab_widget.addTab(tab, get_icon("windows"), "RDP and Drives")
 
     def _browse_log_dir(self):
         directory = QFileDialog.getExistingDirectory(

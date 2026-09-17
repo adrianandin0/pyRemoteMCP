@@ -2,6 +2,7 @@ import json
 import os
 from typing import Dict, Any
 
+DEFAULT_MASTER_PASSWORD = "pyRemoteMPC1234@"
 
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "language": "en",  # Default to English

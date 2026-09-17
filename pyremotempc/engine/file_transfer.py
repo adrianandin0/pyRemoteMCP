@@ -76,8 +76,8 @@ class UnifiedFileTransferEngine(BaseFileTransferEngine):
                 hostname=hostname, port=port if port else 21, username=username, password=password,
                 log_callback=log_callback
             )
-        elif self.ssh_version == "SSH1":
-            # SSH1 uses SCP1 native CLI wrapper engine
+        elif self.ssh_version in ("SSH1", "SCP"):
+            # SSH1 and SCP use SCP native CLI wrapper engine (NativePTYSFTPEngine)
             self._engine = NativePTYSFTPEngine(
                 hostname=hostname, port=port, username=username, password=password,
                 key_filename=key_filename, log_callback=log_callback
@@ -142,3 +142,9 @@ class UnifiedFileTransferEngine(BaseFileTransferEngine):
             self._engine.rename_remote(old_path, new_path)
         else:
             raise NotImplementedError("Rename operation not supported on this protocol engine.")
+
+    def remote_exists(self, remote_path: str) -> bool:
+        if hasattr(self._engine, "remote_exists"):
+            return self._engine.remote_exists(remote_path)
+        return False
+

@@ -231,7 +231,7 @@ class SSHPlainTextEdit(QPlainTextEdit):
         menu.addSeparator()
 
         if self._terminal_widget:
-            clear_action = menu.addAction("Clear Screen & History")
+            clear_action = menu.addAction("Clear Screen and History")
             clear_action.triggered.connect(self._terminal_widget.clear_terminal)
 
             export_action = menu.addAction("Export to TXT...")

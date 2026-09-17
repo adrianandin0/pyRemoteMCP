@@ -32,7 +32,7 @@ class ConnectionTreeWidget(QTreeWidget):
         self.setDropIndicatorShown(True)
         self.setDragDropMode(QTreeWidget.DragDropMode.InternalMove)
 
-        self.root_node: ConnectionNode = ConnectionNode(name="Connections", node_type="Container")
+        self.root_node: ConnectionNode = ConnectionNode(name="Connections", node_type="Container", icon="Connections")
 
     def filter_nodes(self, query: str):
         """Filters connection tree items in real-time based on query (name, hostname, username, description)."""
@@ -78,6 +78,11 @@ class ConnectionTreeWidget(QTreeWidget):
         self._populate_item(self.invisibleRootItem(), root_node)
         self.expandAll()
         self.setUpdatesEnabled(True)
+
+        # Select root "Connections" node by default on startup
+        if self.topLevelItemCount() > 0:
+            top_item = self.topLevelItem(0)
+            self.setCurrentItem(top_item)
 
     def sync_root_node_from_ui(self):
         """Rebuilds self.root_node.children structure from current visual QTreeWidget hierarchy."""

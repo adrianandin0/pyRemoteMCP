@@ -61,7 +61,7 @@ class ConnectionNode:
     inheritance: Dict[str, bool] = field(default_factory=dict)
 
     def is_container(self) -> bool:
-        return self.node_type.lower() in ("container", "folder")
+        return self.node_type.lower() in ("container", "folder") or self.parent_id is None or (self.name and self.name.lower() in ("connections", "conexiones"))
 
     def get_effective_property(self, prop_name: str, parent_node: Optional["ConnectionNode"] = None) -> Any:
         """Resolves property with mRemoteNG inheritance rules."""

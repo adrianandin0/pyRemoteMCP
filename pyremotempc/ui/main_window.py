@@ -159,7 +159,7 @@ class MainWindow(QMainWindow):
         self.btn_toggle_prop.setFixedSize(20, 20)
         self.btn_toggle_prop.setToolTip(tr("properties", self.settings.language))
         self.btn_toggle_prop.setStyleSheet(
-            "QPushButton { background-color: transparent; color: #aaaaaa; border: none; font-size: 10px; font-weight: bold; } "
+            "QPushButton { background-color: transparent; color: #aaaaaa; border: none; font-size: 11px; font-weight: bold; } "
             "QPushButton:hover { background-color: #3c3c3c; color: #ffffff; border-radius: 3px; }"
         )
         self.btn_toggle_prop.clicked.connect(self._toggle_properties_panel)
@@ -221,7 +221,7 @@ class MainWindow(QMainWindow):
         self._load_default_tree()
 
     def _load_default_tree(self):
-        root = ConnectionNode(name=tr("connections", self.settings.language), node_type="Container")
+        root = ConnectionNode(name=tr("connections", self.settings.language), node_type="Container", icon="Connections")
 
         folder_linux = ConnectionNode(name="Linux Servers", node_type="Container", icon="Folder")
         node_local = ConnectionNode(
@@ -698,17 +698,9 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Updated master encryption password.")
 
     def _show_about(self):
-        QMessageBox.about(
-            self,
-            tr("about", self.settings.language),
-            "<p style=\"font-size:12px; font-weight:normal;\">pyRemoteMPC v1.3.0</p>"
-            "<p>Native Python Multi-Protocol Connections Manager for Linux (KDE, GNOME, XFCE) and Cross-Platform.</p>"
-            "<p>SSH Engine with legacy device support (SSH1, SSH2, legacy ciphers and KEX).</p>"
-            "<p>Integrated SFTP/FTP File Manager per active session tab.</p>"
-            "<p>Configurable session logs, infinite scrollback buffer, and TXT output export.</p>"
-            "<p>Master Key Security with PBKDF2-HMAC-SHA256.</p>"
-
-        )
+        from pyremotempc.ui.dialogs.about_dialog import AboutDialog
+        dlg = AboutDialog(self)
+        dlg.exec()
 
     def _toggle_sidebar(self):
         is_vis = self.sidebar_dock.isVisible()

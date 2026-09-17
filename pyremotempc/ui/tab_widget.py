@@ -110,7 +110,7 @@ class SessionTabWidget(QTabWidget):
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         lbl_title = QLabel(tr("welcome_title", lang))
-        lbl_title.setStyleSheet("font-size: 12px; font-weight: normal; color: #3b82f6;")
+        lbl_title.setStyleSheet("font-size: 11px; font-weight: normal; color: #3b82f6;")
         lbl_sub = QLabel(tr("welcome_sub", lang))
         lbl_sub.setStyleSheet("font-size: 11px; font-weight: normal; color: #6b7280;")
 
@@ -127,7 +127,7 @@ class SessionTabWidget(QTabWidget):
             self.removeTab(0)
 
         proto = node.protocol.upper()
-        if proto in ("SFTP", "FTP"):
+        if proto in ("SFTP", "FTP", "SCP"):
             self._open_standalone_sftp_session(node)
             return
 
@@ -155,7 +155,7 @@ class SessionTabWidget(QTabWidget):
         act_layout.setContentsMargins(6, 2, 6, 2)
 
         lbl_info = QLabel(f"{format_tab_title(node)} ({node.hostname}:{node.port})", action_bar)
-        lbl_info.setStyleSheet("color: #cccccc; font-size: 12px; font-weight: normal;")
+        lbl_info.setStyleSheet("color: #cccccc; font-size: 11px; font-weight: normal;")
         act_layout.addWidget(lbl_info)
         act_layout.addStretch()
 
@@ -192,7 +192,7 @@ class SessionTabWidget(QTabWidget):
         act_layout.setContentsMargins(6, 2, 6, 2)
 
         lbl_info = QLabel(f"{format_tab_title(node)} ({node.hostname}:{node.port})", action_bar)
-        lbl_info.setStyleSheet("color: #cccccc; font-size: 12px; font-weight: normal;")
+        lbl_info.setStyleSheet("color: #cccccc; font-size: 11px; font-weight: normal;")
         act_layout.addWidget(lbl_info)
 
         act_layout.addStretch()
@@ -257,7 +257,7 @@ class SessionTabWidget(QTabWidget):
         act_layout.setContentsMargins(6, 2, 6, 2)
 
         lbl_info = QLabel(f"{format_tab_title(node)} ({node.hostname}:{node.port})", action_bar)
-        lbl_info.setStyleSheet("color: #cccccc; font-size: 12px; font-weight: normal;")
+        lbl_info.setStyleSheet("color: #cccccc; font-size: 11px; font-weight: normal;")
         act_layout.addWidget(lbl_info)
         act_layout.addStretch()
 
@@ -381,7 +381,7 @@ class SessionTabWidget(QTabWidget):
         act_layout.setContentsMargins(6, 2, 6, 2)
 
         lbl_info = QLabel(f"{format_tab_title(node)} ({node.hostname}:{node.port})", action_bar)
-        lbl_info.setStyleSheet("color: #cccccc; font-size: 12px; font-weight: normal;")
+        lbl_info.setStyleSheet("color: #cccccc; font-size: 11px; font-weight: normal;")
         act_layout.addWidget(lbl_info)
 
         act_layout.addStretch()

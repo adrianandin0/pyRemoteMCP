@@ -65,17 +65,20 @@ class PropertyGridWidget(QWidget):
         self.lbl_icon = QLabel("Icon:")
         self.cmb_icon = QComboBox()
         self.cmb_icon.setMinimumWidth(30)
+        self.cmb_icon.addItem(get_icon("connections"), "Connections")
+        self.cmb_icon.addItem(get_icon("folder"), "Folder")
+        self.cmb_icon.addItem(get_icon("server"), "Server")
+        self.cmb_icon.addItem(get_icon("linux"), "Linux")
         self.cmb_icon.addItem(get_icon("windows"), "Windows")
         self.cmb_icon.addItem(get_icon("terminal"), "Terminal")
         self.cmb_icon.addItem(get_icon("vnc"), "VNC")
-        self.cmb_icon.addItem(get_icon("connections"), "Connections")
-        self.cmb_icon.addItem(get_icon("server"), "Server")
-        self.cmb_icon.addItem(get_icon("linux"), "Linux")
+        self.cmb_icon.addItem(get_icon("ftp"), "SFTP / FTP / SCP")
         self.cmb_icon.addItem(get_icon("network"), "Router")
         self.cmb_icon.addItem(get_icon("network"), "Switch")
         self.cmb_icon.addItem(get_icon("vm"), "VM")
         self.cmb_icon.addItem(get_icon("storage"), "Storage")
         self.cmb_icon.addItem(get_icon("database"), "Database")
+        self.cmb_icon.addItem(get_icon("serial"), "Serial")
         self.cmb_icon.currentTextChanged.connect(self._on_field_edited)
         self.form_layout.addRow(self.lbl_icon, self.cmb_icon)
 
@@ -328,8 +331,8 @@ class PropertyGridWidget(QWidget):
         self._set_row_visible(self.lbl_description, self.txt_description, True)
 
         if is_container:
-            # Container Nodes (Root "Connections" & Folders): ONLY Name & Description are visible
-            self._set_row_visible(self.lbl_icon, self.cmb_icon, False)
+            # Container Nodes (Root "Connections" & Folders): ONLY Name, Description & Icon are visible
+            self._set_row_visible(self.lbl_icon, self.cmb_icon, True)
             self._set_row_visible(self.lbl_hostname, self.txt_hostname, False)
             self._set_row_visible(self.lbl_protocol, self.cmb_protocol, False)
             self._set_row_visible(self.lbl_port, self.spn_port, False)
@@ -366,7 +369,7 @@ class PropertyGridWidget(QWidget):
             proto = self.cmb_protocol.currentText().upper()
             is_serial = (proto == "SERIAL")
             is_ssh = proto in ("SSH", "SSH2", "SSH1")
-            is_sftp = (proto == "SFTP")
+            is_sftp = proto in ("SFTP", "SCP")
             is_rdp = (proto == "RDP")
             is_vnc = (proto == "VNC")
 
@@ -417,7 +420,22 @@ class PropertyGridWidget(QWidget):
 
         self.txt_name.setText(node.name or "")
         self.txt_description.setText(node.description or "")
-        self.cmb_icon.setCurrentText(node.icon or "Server")
+        
+        target_icon = (node.icon or "").strip()
+        if not target_icon:
+            target_icon = "Connections" if (node.is_container() and node.parent_id is None) else ("Folder" if node.is_container() else "Server")
+
+        idx = self.cmb_icon.findText(target_icon, Qt.MatchFlag.MatchExactly)
+        if idx < 0:
+            for i in range(self.cmb_icon.count()):
+                if self.cmb_icon.itemText(i).lower() == target_icon.lower():
+                    idx = i
+                    break
+        if idx >= 0:
+            self.cmb_icon.setCurrentIndex(idx)
+        else:
+            self.cmb_icon.setCurrentText(target_icon)
+
         self.txt_hostname.setText(node.hostname or "")
         proto_val = node.protocol or "SSH"
         if proto_val in ("SSH2", "SSH1") and self.cmb_protocol.findText("SSH") >= 0:

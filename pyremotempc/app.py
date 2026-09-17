@@ -39,7 +39,7 @@ def main():
             font-weight: normal;
         }
         QGroupBox, QDockWidget::title {
-            font-size: 12px;
+            font-size: 11px;
             font-weight: normal;
         }
         QMainWindow::separator {

@@ -1,5 +1,6 @@
 import os
 import shutil
+import time
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeWidget, QTreeWidgetItem,
     QLineEdit, QPushButton, QLabel, QMessageBox, QFileDialog, QHeaderView, QPlainTextEdit, QGroupBox, QCheckBox,
@@ -55,6 +56,228 @@ class SFTPListWorker(QThread):
             self.finished_signal.emit(True, self.remote_path, items, "")
         except Exception as e:
             self.finished_signal.emit(False, self.remote_path, [], str(e))
+
+
+import time
+from threading import Event
+from pyremotempc.ui.sftp_transfer_dialog import SFTPTransferDialog
+
+
+class SFTPTransferWorker(QThread):
+    # progress_signal: (file_bytes_done, file_size, batch_bytes_done, batch_bytes_total, speed_bps, eta_secs, file_name, file_num, total_files)
+    progress_signal = Signal(int, int, int, int, float, float, str, int, int)
+    # conflict_requested_signal: (item_name, is_dir)
+    conflict_requested_signal = Signal(str, bool)
+    # finished_signal: (success, error_msg)
+    finished_signal = Signal(bool, str)
+
+    def __init__(self, sftp_engine, transfer_type: str, items: list, source_dir: str, target_dir: str, parent=None):
+        super().__init__(parent)
+        self.sftp_engine = sftp_engine
+        self.transfer_type = transfer_type.lower()  # "upload" or "download"
+        self.items = items
+        self.source_dir = source_dir
+        self.target_dir = target_dir
+
+        self.is_paused = False
+        self.is_cancelled = False
+        self.overwrite_all = False
+        self.skip_all = False
+
+        self.conflict_event = Event()
+        self.conflict_action = "overwrite"
+
+        self.batch_bytes_done = 0
+        self.batch_bytes_total = 0
+        self.start_time = time.time()
+
+    def pause(self):
+        self.is_paused = True
+
+    def resume(self):
+        self.is_paused = False
+
+    def cancel(self):
+        self.is_cancelled = True
+        self.conflict_event.set()
+
+    def set_conflict_resolution(self, action: str):
+        self.conflict_action = action
+        if action == "overwrite_all":
+            self.overwrite_all = True
+        elif action == "skip_all":
+            self.skip_all = True
+        elif action == "cancel":
+            self.is_cancelled = True
+        self.conflict_event.set()
+
+    def run(self):
+        try:
+            tasks = self._collect_tasks()
+            self.batch_bytes_total = sum(t["size"] for t in tasks)
+            total_files = len(tasks)
+            self.start_time = time.time()
+
+            if total_files == 0:
+                self.finished_signal.emit(True, "")
+                return
+
+            for idx, task in enumerate(tasks, start=1):
+                if self.is_cancelled:
+                    break
+
+                src_path = task["src"]
+                dst_path = task["dst"]
+                file_size = task["size"]
+                file_name = task["name"]
+
+                target_exists = False
+                if self.transfer_type == "upload":
+                    target_exists = self.sftp_engine.remote_exists(dst_path)
+                else:
+                    target_exists = os.path.exists(dst_path)
+
+                if target_exists:
+                    if self.skip_all:
+                        self.batch_bytes_done += file_size
+                        continue
+                    elif not self.overwrite_all:
+                        self.conflict_event.clear()
+                        self.conflict_requested_signal.emit(file_name, False)
+                        self.conflict_event.wait()
+
+                        if self.is_cancelled or self.conflict_action == "cancel":
+                            break
+                        if self.conflict_action in ("skip", "skip_all"):
+                            self.batch_bytes_done += file_size
+                            continue
+
+                self._transfer_file(src_path, dst_path, file_size, idx, total_files, file_name)
+
+            if self.is_cancelled:
+                self.finished_signal.emit(False, "Transfer cancelled by user.")
+            else:
+                self.finished_signal.emit(True, "")
+        except Exception as e:
+            self.finished_signal.emit(False, str(e))
+
+    def _collect_tasks(self) -> list:
+        tasks = []
+        for item in self.items:
+            if self.is_cancelled:
+                break
+            name = item["name"]
+            src_path = item["path"]
+            is_dir = item["is_dir"]
+            dst_path = os.path.join(self.target_dir, name).replace("\\", "/")
+
+            self.progress_signal.emit(0, 0, 0, 0, 0, 0, f"Scanning: {name}", len(tasks), len(tasks))
+
+            if not is_dir:
+                size = 0
+                if self.transfer_type == "upload":
+                    try:
+                        size = os.path.getsize(src_path)
+                    except Exception:
+                        size = 0
+                else:
+                    size = item.get("size", 0)
+                tasks.append({"src": src_path, "dst": dst_path, "size": size, "name": name})
+            else:
+                if self.transfer_type == "upload":
+                    base_dir = os.path.dirname(src_path)
+                    for root, dirs, files in os.walk(src_path):
+                        if self.is_cancelled:
+                            break
+                        rel_path = os.path.relpath(root, base_dir)
+                        rem_dir = os.path.join(self.target_dir, rel_path).replace("\\", "/")
+                        for f in files:
+                            l_file = os.path.join(root, f)
+                            r_file = os.path.join(rem_dir, f).replace("\\", "/")
+                            try:
+                                f_size = os.path.getsize(l_file)
+                            except Exception:
+                                f_size = 0
+                            tasks.append({"src": l_file, "dst": r_file, "size": f_size, "name": f})
+                            self.progress_signal.emit(0, 0, 0, 0, 0, 0, f"Scanning: {f}", len(tasks), len(tasks))
+                else:
+                    base_dir = os.path.dirname(src_path.rstrip("/"))
+                    self._collect_remote_tasks(src_path, base_dir, tasks)
+        return tasks
+
+    def _collect_remote_tasks(self, rem_dir: str, base_dir: str, tasks: list):
+        try:
+            items = self.sftp_engine.list_remote_dir(rem_dir)
+            rel_path = os.path.relpath(rem_dir, base_dir) if base_dir else rem_dir
+            loc_dir = os.path.join(self.target_dir, rel_path)
+            for item in items:
+                if self.is_cancelled:
+                    break
+                r_name = item["name"]
+                if r_name in (".", ".."):
+                    continue
+                r_path = os.path.join(rem_dir, r_name).replace("\\", "/")
+                l_path = os.path.join(loc_dir, r_name)
+                if item["is_dir"]:
+                    self._collect_remote_tasks(r_path, base_dir, tasks)
+                else:
+                    tasks.append({"src": r_path, "dst": l_path, "size": item.get("size", 0), "name": r_name})
+                    self.progress_signal.emit(0, 0, 0, 0, 0, 0, f"Scanning: {r_name}", len(tasks), len(tasks))
+        except Exception:
+            pass
+
+    def _transfer_file(self, src_path: str, dst_path: str, file_size: int,
+                        file_num: int, total_files: int, file_name: str):
+        if self.transfer_type == "upload":
+            dst_dir = os.path.dirname(dst_path)
+            if dst_dir and dst_dir != ".":
+                try:
+                    self.sftp_engine.create_remote_dir(dst_dir)
+                except Exception:
+                    pass
+        else:
+            dst_dir = os.path.dirname(dst_path)
+            if dst_dir:
+                os.makedirs(dst_dir, exist_ok=True)
+
+        file_bytes_done = 0
+
+        # Reset current file progress bar to 0% immediately upon starting file transfer
+        self.progress_signal.emit(
+            0, file_size, self.batch_bytes_done, self.batch_bytes_total,
+            0.0, 0.0, file_name, file_num, total_files
+        )
+
+        def _cb(transferred, total):
+            if self.is_cancelled:
+                raise Exception("Transfer cancelled by user.")
+            while self.is_paused and not self.is_cancelled:
+                time.sleep(0.1)
+
+            nonlocal file_bytes_done
+            diff = transferred - file_bytes_done
+            if diff > 0:
+                file_bytes_done = transferred
+                self.batch_bytes_done += diff
+
+            now = time.time()
+            elapsed = now - self.start_time
+            speed = self.batch_bytes_done / elapsed if elapsed > 0 else 0
+            rem_bytes = self.batch_bytes_total - self.batch_bytes_done
+            eta = rem_bytes / speed if speed > 0 else 0
+
+            tot = total if total > 0 else file_size
+            self.progress_signal.emit(
+                transferred, tot, self.batch_bytes_done, self.batch_bytes_total,
+                speed, eta, file_name, file_num, total_files
+            )
+
+        if self.transfer_type == "upload":
+            self.sftp_engine.upload_file(src_path, dst_path, progress_callback=_cb)
+        else:
+            self.sftp_engine.download_file(src_path, dst_path, progress_callback=_cb)
+
+
 
 
 class CustomTreeWidgetItem(QTreeWidgetItem):
@@ -160,7 +383,7 @@ class SFTPWidget(QWidget):
         local_vbox = QVBoxLayout(local_container)
         local_vbox.setContentsMargins(0, 0, 0, 0)
         self.lbl_local_title = QLabel(f"{tr('local_machine', self.lang)}")
-        self.lbl_local_title.setStyleSheet("font-size: 12px; font-weight: normal;")
+        self.lbl_local_title.setStyleSheet("font-size: 11px; font-weight: normal;")
         local_vbox.addWidget(self.lbl_local_title)
 
         loc_nav = QHBoxLayout()
@@ -188,7 +411,11 @@ class SFTPWidget(QWidget):
 
         self.tree_local = QTreeWidget(self)
         self.tree_local.setHeaderLabels([tr("col_name", self.lang), tr("col_size", self.lang), tr("col_perms", self.lang)])
-        self.tree_local.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.tree_local.header().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.tree_local.header().setStretchLastSection(False)
+        self.tree_local.setColumnWidth(0, 260)
+        self.tree_local.setColumnWidth(1, 90)
+        self.tree_local.setColumnWidth(2, 90)
         self.tree_local.setSortingEnabled(True)
         self.tree_local.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree_local.customContextMenuRequested.connect(self._show_local_context_menu)
@@ -234,7 +461,7 @@ class SFTPWidget(QWidget):
         remote_vbox = QVBoxLayout(remote_container)
         remote_vbox.setContentsMargins(0, 0, 0, 0)
         self.lbl_remote_title = QLabel(f"{tr('remote_host', self.lang)} ({self.node.hostname})")
-        self.lbl_remote_title.setStyleSheet("font-size: 12px; font-weight: normal;")
+        self.lbl_remote_title.setStyleSheet("font-size: 11px; font-weight: normal;")
         remote_vbox.addWidget(self.lbl_remote_title)
 
         rem_nav = QHBoxLayout()
@@ -262,7 +489,11 @@ class SFTPWidget(QWidget):
 
         self.tree_remote = QTreeWidget(self)
         self.tree_remote.setHeaderLabels([tr("col_name", self.lang), tr("col_size", self.lang), tr("col_perms", self.lang)])
-        self.tree_remote.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.tree_remote.header().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.tree_remote.header().setStretchLastSection(False)
+        self.tree_remote.setColumnWidth(0, 260)
+        self.tree_remote.setColumnWidth(1, 90)
+        self.tree_remote.setColumnWidth(2, 90)
         self.tree_remote.setSortingEnabled(True)
         self.tree_remote.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree_remote.customContextMenuRequested.connect(self._show_remote_context_menu)
@@ -409,6 +640,8 @@ class SFTPWidget(QWidget):
                 item.setData(0, Qt.ItemDataRole.UserRole, full_path)
                 item.setData(1, Qt.ItemDataRole.UserRole, is_dir)
                 item.setData(1, Qt.ItemDataRole.UserRole + 1, size_bytes)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(0, Qt.CheckState.Unchecked)
                 self.tree_local.addTopLevelItem(item)
         except Exception as e:
             QMessageBox.warning(self, "Local File Error", f"Cannot read directory:\n{str(e)}")
@@ -435,6 +668,19 @@ class SFTPWidget(QWidget):
 
     def _populate_remote_tree(self, path: str, items: list):
         self.tree_remote.clear()
+
+        # Add parent directory ".." for remote tree
+        if path and path != "/":
+            parent_path = os.path.dirname(path.rstrip("/"))
+            if not parent_path:
+                parent_path = "/"
+            parent_item = CustomTreeWidgetItem(["..", "<DIR>", ""])
+            parent_item.setIcon(0, get_icon("folder"))
+            parent_item.setData(0, Qt.ItemDataRole.UserRole, parent_path)
+            parent_item.setData(1, Qt.ItemDataRole.UserRole, True)
+            parent_item.setData(1, Qt.ItemDataRole.UserRole + 1, 0)
+            self.tree_remote.addTopLevelItem(parent_item)
+
         for item in items:
             name = item.get("name", "")
             if not self.chk_show_hidden.isChecked() and name.startswith('.') and name != "..":
@@ -448,6 +694,8 @@ class SFTPWidget(QWidget):
             tree_item.setData(0, Qt.ItemDataRole.UserRole, os.path.join(path, name))
             tree_item.setData(1, Qt.ItemDataRole.UserRole, is_dir)
             tree_item.setData(1, Qt.ItemDataRole.UserRole + 1, size_bytes)
+            tree_item.setFlags(tree_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            tree_item.setCheckState(0, Qt.CheckState.Unchecked)
             self.tree_remote.addTopLevelItem(tree_item)
 
     def _local_up(self):
@@ -483,69 +731,142 @@ class SFTPWidget(QWidget):
             self.edit_remote_path.setText(full_path)
             self.load_remote_dir()
 
+    def _get_selected_items(self, tree: QTreeWidget) -> list:
+        items = []
+        root = tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            item = root.child(i)
+            if item.text(0) == "..":
+                continue
+            if item.checkState(0) == Qt.CheckState.Checked:
+                items.append({
+                    "name": item.text(0),
+                    "path": item.data(0, Qt.ItemDataRole.UserRole),
+                    "is_dir": bool(item.data(1, Qt.ItemDataRole.UserRole)),
+                    "size": item.data(1, Qt.ItemDataRole.UserRole + 1) or 0
+                })
+
+        if items:
+            return items
+
+        curr = tree.currentItem()
+        if curr and curr.text(0) != "..":
+            return [{
+                "name": curr.text(0),
+                "path": curr.data(0, Qt.ItemDataRole.UserRole),
+                "is_dir": bool(curr.data(1, Qt.ItemDataRole.UserRole)),
+                "size": curr.data(1, Qt.ItemDataRole.UserRole + 1) or 0
+            }]
+
+        return []
+
     def upload_selected(self):
         if not self.sftp_engine.is_connected:
             QMessageBox.warning(self, "SFTP Upload", "SFTP is not connected. Click 'Connect SFTP' first.")
             return
 
-        item = self.tree_local.currentItem()
-        if not item:
-            QMessageBox.warning(self, "SFTP Upload", "Select a local file to upload.")
+        items = self._get_selected_items(self.tree_local)
+        if not items:
+            QMessageBox.warning(self, "SFTP Upload", "Please select or check at least one local item to upload.")
             return
 
-        local_path = item.data(0, Qt.ItemDataRole.UserRole)
-        filename = os.path.basename(local_path)
         remote_dir = self.edit_remote_path.text().strip()
-        remote_target = os.path.join(remote_dir, filename).replace("\\", "/")
+        local_dir = os.path.expanduser(self.edit_local_path.text().strip())
 
-        is_dir = item.data(1, Qt.ItemDataRole.UserRole)
-        if is_dir:
-            try:
-                self.sftp_engine.upload_directory(local_path, remote_target)
-                QMessageBox.information(self, "Upload Complete", f"Successfully uploaded directory '{filename}' to remote server.")
-                self.load_remote_dir()
-            except Exception as e:
-                QMessageBox.critical(self, "Upload Failed", f"SFTP Directory Upload error:\n{str(e)}")
-            return
-
-        try:
-            self.sftp_engine.upload_file(local_path, remote_target)
-            QMessageBox.information(self, "Upload Complete", f"Successfully uploaded '{filename}' to remote server.")
-            self.load_remote_dir()
-        except Exception as e:
-            QMessageBox.critical(self, "Upload Failed", f"SFTP Upload error:\n{str(e)}")
+        self._start_transfer("upload", items, local_dir, remote_dir)
 
     def download_selected(self):
         if not self.sftp_engine.is_connected:
             QMessageBox.warning(self, "SFTP Download", "SFTP is not connected. Click 'Connect SFTP' first.")
             return
 
-        item = self.tree_remote.currentItem()
-        if not item:
-            QMessageBox.warning(self, "SFTP Download", "Select a remote file to download.")
+        items = self._get_selected_items(self.tree_remote)
+        if not items:
+            QMessageBox.warning(self, "SFTP Download", "Please select or check at least one remote item to download.")
             return
 
-        remote_path = item.data(0, Qt.ItemDataRole.UserRole)
-        filename = os.path.basename(remote_path)
+        remote_dir = self.edit_remote_path.text().strip()
         local_dir = os.path.expanduser(self.edit_local_path.text().strip())
-        local_target = os.path.join(local_dir, filename)
 
-        is_dir = item.data(1, Qt.ItemDataRole.UserRole)
-        if is_dir:
-            try:
-                self.sftp_engine.download_directory(remote_path, local_target)
-                QMessageBox.information(self, "Download Complete", f"Successfully downloaded directory '{filename}' to local directory.")
-                self.load_local_dir()
-            except Exception as e:
-                QMessageBox.critical(self, "Download Failed", f"SFTP Directory Download error:\n{str(e)}")
-            return
+        self._start_transfer("download", items, remote_dir, local_dir)
 
-        try:
-            self.sftp_engine.download_file(remote_path, local_target)
-            QMessageBox.information(self, "Download Complete", f"Successfully downloaded '{filename}' to local directory.")
+    def _start_transfer(self, transfer_type: str, items: list, source_dir: str, target_dir: str):
+        self.btn_upload.setEnabled(False)
+        self.btn_download.setEnabled(False)
+
+        self.transfer_dialog = SFTPTransferDialog(transfer_type=transfer_type, parent=self)
+        self.transfer_worker = SFTPTransferWorker(
+            sftp_engine=self.sftp_engine,
+            transfer_type=transfer_type,
+            items=items,
+            source_dir=source_dir,
+            target_dir=target_dir,
+            parent=self
+        )
+
+        self.transfer_worker.progress_signal.connect(self.transfer_dialog.update_progress)
+        self.transfer_worker.conflict_requested_signal.connect(self._on_conflict_requested)
+        self.transfer_worker.finished_signal.connect(lambda success, err: self._on_transfer_finished(success, transfer_type, err))
+
+        self.transfer_dialog.pause_toggled_signal.connect(self._on_dialog_pause_toggled)
+        self.transfer_dialog.cancel_requested_signal.connect(self.transfer_worker.cancel)
+        self.transfer_dialog.overwrite_all_toggled_signal.connect(self._on_dialog_overwrite_all_toggled)
+
+        self.transfer_dialog.show()
+        self.transfer_worker.start()
+
+    def _on_dialog_pause_toggled(self, paused: bool):
+        if paused:
+            self.transfer_worker.pause()
+        else:
+            self.transfer_worker.resume()
+
+    def _on_dialog_overwrite_all_toggled(self, checked: bool):
+        self.transfer_worker.overwrite_all = checked
+
+    def _on_conflict_requested(self, item_name: str, is_dir: bool):
+        choice = self.transfer_dialog.prompt_conflict(item_name, is_dir)
+        self.transfer_worker.set_conflict_resolution(choice)
+
+    def _on_transfer_finished(self, success: bool, transfer_type: str, error_msg: str):
+        self.btn_upload.setEnabled(True)
+        self.btn_download.setEnabled(True)
+        self.lbl_status.setText(f"SFTP Connected: {self.node.username}@{self.node.hostname}")
+
+        if success:
+            if hasattr(self, "transfer_dialog") and self.transfer_dialog:
+                total_files = getattr(self.transfer_worker, "total_files", 1) if hasattr(self, "transfer_worker") else 1
+                total_bytes = getattr(self.transfer_worker, "batch_bytes_total", 0) if hasattr(self, "transfer_worker") else 0
+                self.transfer_dialog.set_completed(transfer_type, total_files, total_bytes)
+
+            action_past = "uploaded" if transfer_type == "upload" else "downloaded"
+            QMessageBox.information(
+                self,
+                "Transfer Complete",
+                f"Successfully {action_past} all selected items."
+            )
+
+            if hasattr(self, "transfer_dialog") and self.transfer_dialog:
+                self.transfer_dialog.accept()
+                self.transfer_dialog = None
+        else:
+            if hasattr(self, "transfer_dialog") and self.transfer_dialog:
+                self.transfer_dialog.reject()
+                self.transfer_dialog = None
+
+            if error_msg and "cancelled" not in error_msg.lower():
+                self.group_log.setVisible(True)
+                self.btn_toggle_log.setChecked(True)
+                QMessageBox.critical(
+                    self,
+                    "Transfer Error",
+                    f"SFTP transfer failed:\n{error_msg}"
+                )
+
+        if transfer_type == "upload":
+            self.load_remote_dir()
+        else:
             self.load_local_dir()
-        except Exception as e:
-            QMessageBox.critical(self, "Download Failed", f"SFTP Download error:\n{str(e)}")
 
     def _go_local_home(self):
         self.edit_local_path.setText(os.path.expanduser("~"))

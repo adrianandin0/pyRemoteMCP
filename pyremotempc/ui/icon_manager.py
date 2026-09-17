@@ -33,26 +33,18 @@ def get_node_icon(node) -> QIcon:
     if not node:
         return get_icon("server")
 
-    icon_name = (getattr(node, "icon", "") or "").lower()
+    icon_name = (getattr(node, "icon", "") or "").strip().lower()
     is_cont = getattr(node, "is_container", lambda: False)()
-
-    if is_cont or icon_name == "folder":
-        return get_icon("folder")
-
     proto = (getattr(node, "protocol", "") or "").upper()
 
-    # Protocol defaults if icon is empty or generic 'server'
-    if not icon_name or icon_name == "server":
-        if proto == "RDP":
-            return get_icon("windows")
-        elif proto in ("SSH2", "SSH1"):
-            return get_icon("terminal")
-        elif proto == "VNC":
-            return get_icon("vnc")
-        elif proto == "TELNET":
-            return get_icon("connections")
-
+    # 1. If explicit custom icon is set on node, resolve and return it
     if icon_name:
+        if "connections" in icon_name:
+            return get_icon("connections")
+        if "folder" in icon_name:
+            return get_icon("folder")
+        if "linux" in icon_name:
+            return get_icon("linux")
         if "windows" in icon_name:
             return get_icon("windows")
         if "terminal" in icon_name or "shell" in icon_name:
@@ -61,8 +53,6 @@ def get_node_icon(node) -> QIcon:
             return get_icon("vnc")
         if "connection" in icon_name:
             return get_icon("connections")
-        if "linux" in icon_name:
-            return get_icon("linux")
         if "router" in icon_name or "switch" in icon_name or "network" in icon_name:
             return get_icon("network")
         if "vm" in icon_name:
@@ -71,18 +61,32 @@ def get_node_icon(node) -> QIcon:
             return get_icon("storage")
         if "database" in icon_name:
             return get_icon("database")
+        if "serial" in icon_name or "tty" in icon_name or "com" in icon_name:
+            return get_icon("serial")
+        if "server" in icon_name:
+            return get_icon("server")
 
         ic = get_icon(icon_name)
         if not ic.isNull():
             return ic
 
+    # 2. Defaults if icon_name is not specified
+    if is_cont:
+        if (getattr(node, "parent_id", None) is None) or (getattr(node, "name", "").lower() in ("connections", "conexiones")):
+            return get_icon("connections")
+        return get_icon("folder")
+
     if proto == "RDP":
         return get_icon("windows")
-    elif proto in ("SSH2", "SSH1"):
+    elif proto in ("SSH2", "SSH1", "SSH"):
         return get_icon("terminal")
     elif proto == "VNC":
         return get_icon("vnc")
+    elif proto in ("SFTP", "FTP", "SCP"):
+        return get_icon("ftp")
     elif proto == "TELNET":
         return get_icon("connections")
+    elif proto == "SERIAL":
+        return get_icon("serial")
 
     return get_icon("server")

@@ -411,7 +411,7 @@ class VNCWidget(QWidget):
         card_layout.setSpacing(8)
 
         lbl_auth_title = QLabel("🔒 VNC Authentication Required", self.auth_card)
-        lbl_auth_title.setStyleSheet("font-size: 13px; font-weight: bold; color: #3b82f6;")
+        lbl_auth_title.setStyleSheet("font-size: 11px; font-weight: bold; color: #3b82f6;")
         card_layout.addWidget(lbl_auth_title)
 
         self.lbl_auth_sub = QLabel(f"Server {self.hostname}:{self.port} requires a password:", self.auth_card)

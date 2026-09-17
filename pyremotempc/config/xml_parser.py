@@ -98,7 +98,11 @@ class mRemoteNGXmlParser:
 
     def _parse_node(self, elem: ET.Element, version: str, iterations: int = 1000, is_import: bool = False) -> ConnectionNode:
         name = _get_case_insensitive_attr(elem, ["Name"], "Unnamed")
-        node_type = _get_case_insensitive_attr(elem, ["Type"], "Connection")
+        tag_clean = _clean_tag(elem.tag).lower()
+        if tag_clean in ("connections", "mremoteng") or name.lower() in ("connections", "conexiones"):
+            node_type = "Container"
+        else:
+            node_type = _get_case_insensitive_attr(elem, ["Type"], "Connection")
         hostname = _get_case_insensitive_attr(elem, ["Hostname", "Host", "IP", "IPAddress", "Server"])
         protocol = _get_case_insensitive_attr(elem, ["Protocol", "Proto"], "SSH2").upper()
 
