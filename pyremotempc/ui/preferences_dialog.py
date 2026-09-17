@@ -14,19 +14,19 @@ from pyremotempc.ui.icon_manager import get_icon
 class PreferencesDialog(QDialog):
     """
     Preferences and Options Dialog for pyRemoteMPC.
-    Allows configuring language (Spanish/English), session logs, infinite console scrollback buffer,
-    aesthetic themes/fonts, and Master Encryption Key security settings.
+    Allows configuring language, session logs, terminal scrollback,
+    RDP shared folders, and Security (Master Password & Startup Authentication).
     """
 
-    def __init__(self, settings_manager: SettingsManager, parent=None):
+    def __init__(self, settings_manager: SettingsManager, initial_tab: int = 0, parent=None):
         super().__init__(parent)
         self.settings = settings_manager
         self.lang = self.settings.language
         self.master_key_mgr = MasterKeyManager(self.settings)
 
         self.setWindowTitle(f"{tr('preferences', self.lang)} - pyRemoteMPC")
-        self.setMinimumSize(680, 480)
-        self.resize(680, 480)
+        self.setMinimumSize(680, 520)
+        self.resize(680, 520)
 
         main_layout = QVBoxLayout(self)
 
@@ -38,6 +38,9 @@ class PreferencesDialog(QDialog):
         self._init_terminal_logging_tab()
         self._init_rdp_tab()
         self._init_security_tab()
+
+        if 0 <= initial_tab < self.tab_widget.count():
+            self.tab_widget.setCurrentIndex(initial_tab)
 
         # Bottom OK / Cancel Buttons
         btn_box = QHBoxLayout()
@@ -62,7 +65,7 @@ class PreferencesDialog(QDialog):
         group = QGroupBox(tr("appearance", self.lang), tab)
         form = QFormLayout(group)
 
-        # Language Selector (English)
+        # Language Selector
         self.combo_lang = QComboBox(group)
         self.combo_lang.addItem("English", "en")
         self.combo_lang.setCurrentIndex(0)
@@ -139,17 +142,31 @@ class PreferencesDialog(QDialog):
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        group_sec = QGroupBox(tr("master_key", self.lang), tab)
+        # Startup Authentication Group
+        group_startup = QGroupBox("Application Startup Security", tab)
+        vbox_startup = QVBoxLayout(group_startup)
+
+        self.chk_require_startup = QCheckBox("Ask for Master Password on application startup", group_startup)
+        self.chk_require_startup.setChecked(self.settings.get("require_master_password_on_startup", False))
+        vbox_startup.addWidget(self.chk_require_startup)
+
+        lbl_startup_info = QLabel("If unchecked, pyRemoteMPC opens automatically without prompting for a password on startup.", group_startup)
+        lbl_startup_info.setWordWrap(True)
+        lbl_startup_info.setStyleSheet("color: #888888; font-size: 11px; margin-top: 4px;")
+        vbox_startup.addWidget(lbl_startup_info)
+        layout.addWidget(group_startup)
+
+        # Master Password Change Group
+        group_sec = QGroupBox("Master Password & Encryption Key", tab)
         form_sec = QFormLayout(group_sec)
 
         lbl_sec_info = QLabel(
-            "Security: Master passwords are derived using PBKDF2-HMAC-SHA256 (200,000 iterations + Salt). "
-            "Plaintext passwords are NEVER saved to disk.",
+            "Security Guarantee: Master Passwords use PBKDF2-HMAC-SHA256 (200,000 iterations + Salt). "
+            "All saved connection passwords are AES-encrypted on disk. Plaintext passwords are NEVER saved in any file or configuration.",
             group_sec
         )
         lbl_sec_info.setWordWrap(True)
-        lbl_sec_info.setStyleSheet("color: #4ec9b0; font-size: 11px; font-weight: normal;")
-
+        lbl_sec_info.setStyleSheet("color: #4ec9b0; font-size: 11px; font-weight: normal; margin-bottom: 8px;")
         form_sec.addRow(lbl_sec_info)
 
         self.edit_curr_pass = QLineEdit(group_sec)
@@ -165,6 +182,7 @@ class PreferencesDialog(QDialog):
         form_sec.addRow(tr("confirm_pass", self.lang) + ":", self.edit_confirm_pass)
 
         btn_change_key = QPushButton(tr("update_key", self.lang), group_sec)
+        btn_change_key.setIcon(get_icon("security"))
         btn_change_key.clicked.connect(self._change_master_key)
         form_sec.addRow(btn_change_key)
 
@@ -253,11 +271,17 @@ class PreferencesDialog(QDialog):
             return
 
         self.master_key_mgr.set_master_key(new_pass)
+        
+        # Update parent main window master password in RAM and re-save encrypted file
+        if self.parent() and hasattr(self.parent(), "master_password"):
+            self.parent().master_password = new_pass
+            if hasattr(self.parent(), "_auto_save_connections"):
+                self.parent()._auto_save_connections()
+
         self.edit_curr_pass.clear()
         self.edit_new_pass.clear()
         self.edit_confirm_pass.clear()
         QMessageBox.information(self, "Security Updated", "Master Encryption Password updated successfully.")
-
 
     def _on_save(self):
         selected_lang = self.combo_lang.currentData()
@@ -268,8 +292,8 @@ class PreferencesDialog(QDialog):
         self.settings.set("enable_logging", self.chk_logging.isChecked())
         self.settings.set("log_directory", self.edit_log_dir.text().strip())
         self.settings.set("scrollback_lines", self.spin_scrollback.value())
+        self.settings.set("require_master_password_on_startup", self.chk_require_startup.isChecked())
         self.settings.set("rdp_enable_clipboard", self.chk_rdp_clipboard.isChecked())
         self.settings.set("rdp_enable_drive_redirection", self.chk_rdp_drive.isChecked())
         self.settings.set("rdp_shared_folder", self.edit_rdp_folder.text().strip())
         self.accept()
-

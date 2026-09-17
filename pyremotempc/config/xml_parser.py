@@ -29,8 +29,9 @@ class mRemoteNGXmlParser:
     Supports AEAD GCM (v2.6+) and Legacy Rijndael CBC encryption/decryption.
     """
 
-    def __init__(self, master_password: str = "mR3m"):
+    def __init__(self, master_password: str = "mR3m", skip_passwords: bool = False):
         self.master_password = master_password
+        self.skip_passwords = skip_passwords
 
     def parse_file(self, file_path: str, is_import: bool = False) -> Tuple[ConnectionNode, str]:
         """Parses an mRemoteNG XML file and returns (root_node, version)."""
@@ -114,11 +115,11 @@ class mRemoteNGXmlParser:
 
         username = _get_case_insensitive_attr(elem, ["Username", "User"])
         
-        # If importing from external mRemoteNG XML, passwords are left blank per user requirement.
-        # If loading pyRemoteMPC's own saved connections, passwords are decrypted and preserved.
+        # If skip_passwords is True or importing from external mRemoteNG XML, passwords are left blank.
+        # If loading pyRemoteMPC's own saved connections with valid password, passwords are decrypted and preserved.
         raw_password = _get_case_insensitive_attr(elem, ["Password", "Pass"])
         password = ""
-        if raw_password:
+        if raw_password and not self.skip_passwords:
             decrypted = self._decrypt_str(raw_password, version, iterations)
             if decrypted and decrypted != raw_password:
                 password = decrypted

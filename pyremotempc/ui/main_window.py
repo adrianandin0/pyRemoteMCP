@@ -59,6 +59,7 @@ class MainWindow(QMainWindow):
         self._restore_window_settings()
 
         self.master_password = "mR3m"
+        self.read_only_passwords_mode = False
         self.current_file_path = get_default_config_path()
 
         # Core central tabs container with single ultra-narrow sidebar toggle button on outer boundary
@@ -215,13 +216,39 @@ class MainWindow(QMainWindow):
         """Loads connections from user config file (~/.config/pyremotempc/confCons.xml) if present."""
         default_path = get_default_config_path()
         if os.path.exists(default_path):
+            skip_passwords = False
+            require_startup = self.settings.get("require_master_password_on_startup", False)
+            if require_startup and self.master_key_mgr.is_master_key_set():
+                attempts = 0
+                while attempts < 3:
+                    dialog = MasterPasswordDialog(self, is_default=False, show_skip_passwords=True)
+                    res = dialog.exec()
+                    if dialog.is_skip_passwords():
+                        skip_passwords = True
+                        break
+                    elif res == MasterPasswordDialog.DialogCode.Accepted:
+                        entered_pass = dialog.get_password()
+                        if self.master_key_mgr.verify_master_key(entered_pass):
+                            self.master_password = entered_pass
+                            break
+                        else:
+                            QMessageBox.warning(self, "Access Denied", "Incorrect Master Password. Please try again.")
+                            attempts += 1
+                    else:
+                        skip_passwords = True
+                        break
+
+            self.read_only_passwords_mode = skip_passwords
+
             try:
-                parser = mRemoteNGXmlParser(master_password=self.master_password)
+                parser = mRemoteNGXmlParser(master_password=self.master_password, skip_passwords=skip_passwords)
                 root_node, ver = parser.parse_file(default_path)
                 self.tree_widget.load_tree(root_node)
+                if skip_passwords:
+                    self.statusBar().showMessage("Connections loaded in Read-Only mode (original encrypted passwords preserved on disk).")
                 return
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Failed to auto-load connections: {e}")
 
         self._load_default_tree()
 
@@ -245,6 +272,9 @@ class MainWindow(QMainWindow):
 
     def _auto_save_connections(self):
         """Auto-saves current connection tree to ~/.config/pyremotempc/confCons.xml."""
+        if getattr(self, "read_only_passwords_mode", False):
+            # Protect original encrypted passwords file on disk when opened in Read-Only (no-passwords) mode
+            return
         default_path = get_default_config_path()
         try:
             parser = mRemoteNGXmlParser(master_password=self.master_password)
@@ -314,9 +344,9 @@ class MainWindow(QMainWindow):
         act_about.triggered.connect(self._show_about)
         menu_help.addAction(act_about)
 
-    def _open_preferences(self):
+    def _open_preferences(self, initial_tab: int = 0):
         """Opens the Preferences and Options dialog."""
-        dialog = PreferencesDialog(self.settings, self)
+        dialog = PreferencesDialog(self.settings, initial_tab=initial_tab, parent=self)
         if dialog.exec() == PreferencesDialog.DialogCode.Accepted:
             # Refresh language & window title
             lang = self.settings.language
@@ -734,8 +764,16 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Import Error", f"Failed to parse SecureCRT XML:\n{str(e)}")
         else:
             # Generic / Encrypted XML Connections
-            dialog = MasterPasswordDialog(self, is_default=(self.master_password == "mR3m"))
-            if dialog.exec() == MasterPasswordDialog.DialogCode.Accepted:
+            dialog = MasterPasswordDialog(self, is_default=(self.master_password == "mR3m"), show_skip_passwords=True)
+            res = dialog.exec()
+            if dialog.is_skip_passwords():
+                try:
+                    parser = mRemoteNGXmlParser(master_password="", skip_passwords=True)
+                    root_node, ver = parser.parse_file(file_path, is_import=True)
+                    self._prompt_and_import_nodes(root_node, "XML", file_path)
+                except Exception as e:
+                    QMessageBox.critical(self, "Import Error", f"Failed to parse XML connection file:\n{str(e)}")
+            elif res == MasterPasswordDialog.DialogCode.Accepted:
                 self.master_password = dialog.get_password()
                 try:
                     parser = mRemoteNGXmlParser(master_password=self.master_password)
@@ -761,12 +799,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Export Error", f"Failed to export XML:\n{str(e)}")
 
     def _change_master_password(self):
-        dialog = MasterPasswordDialog(self, is_default=(self.master_password == "mR3m"))
-        if dialog.exec() == MasterPasswordDialog.DialogCode.Accepted:
-            self.master_password = dialog.get_password()
-            self.master_key_mgr.set_master_key(self.master_password)
-            self._auto_save_connections()
-            self.statusBar().showMessage("Updated master encryption password.")
+        self._open_preferences(initial_tab=3)
 
     def _show_about(self):
         from pyremotempc.ui.dialogs.about_dialog import AboutDialog
