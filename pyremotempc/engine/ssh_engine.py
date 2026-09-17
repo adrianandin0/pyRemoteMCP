@@ -307,13 +307,23 @@ class NativePTYSSHEngine(BaseProtocolEngine):
     def _read_loop(self):
         password_sent = False
         warning_shown = False
+        auth_phase = True                    # Solo durante esta fase se permite auto-envío
+        start_time = time.time()
+        AUTH_TIMEOUT = 12.0                  # segundos máximos de fase de autenticación
 
         if self.protocol == "SSH1" and self.output_callback and not warning_shown:
-            self.output_callback("\r\n\033[33m[SSH Security Warning]: Session connected using legacy SSH 1.5 protocol. Recommend updating remote server configuration.\033[0m\r\n")
+            self.output_callback(
+                "\r\n\033[33m[SSH Security Warning]: Session connected using legacy SSH 1.5 protocol. "
+                "Recommend updating remote server configuration.\033[0m\r\n"
+            )
             warning_shown = True
 
         while not self._stop_event.is_set() and self.master_fd is not None:
             try:
+                # Salir de la fase de autenticación por timeout
+                if auth_phase and (time.time() - start_time) > AUTH_TIMEOUT:
+                    auth_phase = False
+
                 r, _, _ = select.select([self.master_fd], [], [], 0.005)
                 if self.master_fd in r:
                     data = os.read(self.master_fd, 8192)
@@ -322,15 +332,39 @@ class NativePTYSSHEngine(BaseProtocolEngine):
                         if self.output_callback:
                             self.output_callback(text)
 
-                        # Auto-send key passphrase or password if prompted
                         lower_text = text.lower()
-                        if self.key_passphrase and ("enter passphrase for key" in lower_text or "passphrase" in lower_text):
-                            time.sleep(0.05)
-                            os.write(self.master_fd, (self.key_passphrase + "\n").encode("utf-8"))
-                        elif not password_sent and self.password and ("password:" in lower_text or "password :" in lower_text):
-                            time.sleep(0.05)
-                            os.write(self.master_fd, (self.password + "\n").encode("utf-8"))
-                            password_sent = True
+
+                        # Solo intentar auto-enviar durante la fase de autenticación
+                        if auth_phase and not password_sent:
+                            # Passphrase de clave privada
+                            if self.key_passphrase and (
+                                "enter passphrase for key" in lower_text
+                                or "passphrase for key" in lower_text
+                            ):
+                                time.sleep(0.04)
+                                os.write(self.master_fd, (self.key_passphrase + "\n").encode("utf-8"))
+                                # No marcamos password_sent todavía (puede pedir password después)
+
+                            # Password normal de usuario
+                            elif self.password and (
+                                "password:" in lower_text
+                                or "password :" in lower_text
+                            ):
+                                time.sleep(0.04)
+                                os.write(self.master_fd, (self.password + "\n").encode("utf-8"))
+                                password_sent = True
+                                auth_phase = False          # Una vez enviada, salimos de fase auth
+
+                        # Detección de prompt de shell → salir de fase de autenticación
+                        if auth_phase and (
+                            lower_text.strip().endswith("$")
+                            or lower_text.strip().endswith("#")
+                            or lower_text.strip().endswith("%")
+                            or "last login" in lower_text
+                            or "welcome to" in lower_text
+                        ):
+                            auth_phase = False
+
                     else:
                         break
             except Exception:
@@ -339,6 +373,8 @@ class NativePTYSSHEngine(BaseProtocolEngine):
         self.is_connected = False
         if self.output_callback:
             self.output_callback("\r\n[SSH Session Closed]\r\n")
+
+
 
     def disconnect(self):
         self._stop_event.set()

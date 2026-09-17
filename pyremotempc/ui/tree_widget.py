@@ -1,3 +1,5 @@
+import copy
+import uuid
 from typing import Optional
 from PySide6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QMenu, QMessageBox, QInputDialog
@@ -284,12 +286,131 @@ class ConnectionTreeWidget(QTreeWidget):
                     return True
         return False
 
+    def _find_parent_node_recursive(self, current: ConnectionNode, target_id: str) -> Optional[ConnectionNode]:
+        for child in current.children:
+            if child.id == target_id:
+                return current
+            if child.is_container():
+                found = self._find_parent_node_recursive(child, target_id)
+                if found:
+                    return found
+        return None
+
+    def move_node_up(self, node: Optional[ConnectionNode] = None):
+        """Moves selected node up by 1 position among its siblings."""
+        if node is None:
+            node = self.get_selected_node()
+        if not node or node == self.root_node:
+            return
+
+        self.sync_root_node_from_ui()
+        parent_node = self._find_parent_node_recursive(self.root_node, node.id)
+        if not parent_node:
+            return
+
+        idx = next((i for i, c in enumerate(parent_node.children) if c.id == node.id), -1)
+        if idx > 0:
+            parent_node.children[idx], parent_node.children[idx - 1] = parent_node.children[idx - 1], parent_node.children[idx]
+            self.load_tree(self.root_node)
+            self._select_node_item(self.invisibleRootItem(), node.id)
+            self.tree_changed.emit()
+
+    def move_node_down(self, node: Optional[ConnectionNode] = None):
+        """Moves selected node down by 1 position among its siblings."""
+        if node is None:
+            node = self.get_selected_node()
+        if not node or node == self.root_node:
+            return
+
+        self.sync_root_node_from_ui()
+        parent_node = self._find_parent_node_recursive(self.root_node, node.id)
+        if not parent_node:
+            return
+
+        idx = next((i for i, c in enumerate(parent_node.children) if c.id == node.id), -1)
+        if idx >= 0 and idx < len(parent_node.children) - 1:
+            parent_node.children[idx], parent_node.children[idx + 1] = parent_node.children[idx + 1], parent_node.children[idx]
+            self.load_tree(self.root_node)
+            self._select_node_item(self.invisibleRootItem(), node.id)
+            self.tree_changed.emit()
+
+    def _deep_copy_node(self, node: ConnectionNode, new_parent_id: Optional[str] = None) -> ConnectionNode:
+        """Deep copies a ConnectionNode with fresh UUIDs assigned recursively."""
+        new_node = copy.deepcopy(node)
+        new_node.id = str(uuid.uuid4())
+        new_node.name = f"{node.name} (Copy)"
+        new_node.parent_id = new_parent_id
+
+        def _reassign_ids(n: ConnectionNode, p_id: str):
+            for child in n.children:
+                child.id = str(uuid.uuid4())
+                child.parent_id = p_id
+                _reassign_ids(child, child.id)
+
+        _reassign_ids(new_node, new_node.id)
+        return new_node
+
+    def clone_node(self, node: Optional[ConnectionNode] = None) -> Optional[ConnectionNode]:
+        """Clones a connection or container node and inserts it right after original."""
+        if node is None:
+            node = self.get_selected_node()
+        if not node or node == self.root_node:
+            return None
+
+        self.sync_root_node_from_ui()
+        parent_node = self._find_parent_node_recursive(self.root_node, node.id) or self.root_node
+
+        cloned_node = self._deep_copy_node(node, parent_node.id)
+
+        idx = next((i for i, c in enumerate(parent_node.children) if c.id == node.id), len(parent_node.children) - 1)
+        parent_node.children.insert(idx + 1, cloned_node)
+
+        self.load_tree(self.root_node)
+        self._select_node_item(self.invisibleRootItem(), cloned_node.id)
+        self.tree_changed.emit()
+        return cloned_node
+
+    def get_suggested_import_folder_name(self, base_name: str = "Imported from File") -> str:
+        """Calculates a unique default folder name like 'Imported from File' or 'Imported from File (1)'."""
+        self.sync_root_node_from_ui()
+        existing_names = {child.name.strip() for child in self.root_node.children if child.name}
+        if base_name not in existing_names:
+            return base_name
+        counter = 1
+        while f"{base_name} ({counter})" in existing_names:
+            counter += 1
+        return f"{base_name} ({counter})"
+
+    def import_nodes_into_new_folder(self, imported_root: ConnectionNode, folder_name: str = "Imported from File", folder_icon: str = "Folder") -> ConnectionNode:
+        """Appends imported connection tree inside a new container folder with custom name and icon."""
+        self.sync_root_node_from_ui()
+
+        import_folder = ConnectionNode(
+            name=folder_name,
+            node_type="Container",
+            icon=folder_icon,
+            parent_id=self.root_node.id
+        )
+
+        children_to_add = imported_root.children if imported_root.children else [imported_root]
+        for child in children_to_add:
+            child.parent_id = import_folder.id
+            import_folder.children.append(child)
+
+        self.root_node.children.append(import_folder)
+        self.load_tree(self.root_node)
+        self._select_node_item(self.invisibleRootItem(), import_folder.id)
+        self.tree_changed.emit()
+        return import_folder
+
     def _show_context_menu(self, position):
         item = self.itemAt(position)
         menu = QMenu(self)
 
         if item:
             node: ConnectionNode = item.data(0, Qt.ItemDataRole.UserRole)
+            is_root = (node == self.root_node or node.id == self.root_node.id)
+
             if not node.is_container():
                 action_connect = menu.addAction(get_icon("connect"), "Connect")
                 action_connect.triggered.connect(lambda: self.node_activated.emit(node))
@@ -301,12 +422,24 @@ class ConnectionTreeWidget(QTreeWidget):
             action_new_folder = menu.addAction(get_icon("folder"), "New Folder")
             action_new_folder.triggered.connect(lambda: self.add_new_folder(node))
 
+            if not is_root:
+                action_clone = menu.addAction(get_icon("copy"), "Clone")
+                action_clone.triggered.connect(lambda: self.clone_node(node))
+
+                menu.addSeparator()
+                action_up = menu.addAction(get_icon("upload"), "Up")
+                action_up.triggered.connect(lambda: self.move_node_up(node))
+
+                action_down = menu.addAction(get_icon("download"), "Down")
+                action_down.triggered.connect(lambda: self.move_node_down(node))
+
+            menu.addSeparator()
             action_rename = menu.addAction(get_icon("edit"), "Rename")
             action_rename.triggered.connect(lambda: self.rename_node(node))
 
-            menu.addSeparator()
-            action_delete = menu.addAction(get_icon("trash"), "Delete")
-            action_delete.triggered.connect(self.delete_selected_node)
+            if not is_root:
+                action_delete = menu.addAction(get_icon("trash"), "Delete")
+                action_delete.triggered.connect(self.delete_selected_node)
         else:
             action_new_conn = menu.addAction(get_icon("add"), "New Connection")
             action_new_conn.triggered.connect(lambda: self.add_new_connection(self.root_node))

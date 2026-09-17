@@ -118,9 +118,11 @@ class mRemoteNGXmlParser:
         # If loading pyRemoteMPC's own saved connections, passwords are decrypted and preserved.
         raw_password = _get_case_insensitive_attr(elem, ["Password", "Pass"])
         password = ""
-        if raw_password and not is_import:
-            password = self._decrypt_str(raw_password, version, iterations)
-            if not password:
+        if raw_password:
+            decrypted = self._decrypt_str(raw_password, version, iterations)
+            if decrypted and decrypted != raw_password:
+                password = decrypted
+            elif not is_import:
                 password = raw_password
 
         domain = _get_case_insensitive_attr(elem, ["Domain"])

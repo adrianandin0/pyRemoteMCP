@@ -1,4 +1,5 @@
 import os
+import xml.etree.ElementTree as ET
 from PySide6.QtWidgets import (
     QMainWindow, QDockWidget, QFileDialog, QMessageBox, QToolBar,
     QStatusBar, QApplication, QSplitter, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
@@ -11,12 +12,16 @@ from pyremotempc.config.models import ConnectionNode
 from pyremotempc.config.settings import SettingsManager
 from pyremotempc.config.i18n import tr
 from pyremotempc.config.xml_parser import mRemoteNGXmlParser
+from pyremotempc.config.securecrt_parser import SecureCRTXmlParser
+from pyremotempc.config.asbru_parser import AsbruYamlParser
+from pyremotempc.config.rdcman_parser import RdcmanXmlParser
 from pyremotempc.crypto.master_key_manager import MasterKeyManager
 from pyremotempc.ui.tree_widget import ConnectionTreeWidget
 from pyremotempc.ui.property_grid import PropertyGridWidget
 from pyremotempc.ui.tab_widget import SessionTabWidget
 from pyremotempc.ui.preferences_dialog import PreferencesDialog
 from pyremotempc.ui.dialogs.master_password_dialog import MasterPasswordDialog
+from pyremotempc.ui.dialogs.import_folder_dialog import ImportFolderDialog
 from pyremotempc.ui.icon_manager import get_icon
 from pyremotempc.plugins.plugin_manager import PluginManager
 from pyremotempc.utils.serial_utils import get_available_serial_ports
@@ -261,31 +266,31 @@ class MainWindow(QMainWindow):
         menu_file = menubar.addMenu(tr("file", lang))
 
         act_new_conn = QAction(get_icon("add"), tr("new_connection", lang), self)
-        act_new_conn.setShortcut("Ctrl+N")
+        # No shortcut: Ctrl+N conflicts with terminal apps
         act_new_conn.triggered.connect(lambda: self.tree_widget.add_new_connection())
         menu_file.addAction(act_new_conn)
 
         act_new_folder = QAction(get_icon("folder"), tr("new_folder", lang), self)
-        act_new_folder.setShortcut("Ctrl+Shift+N")
+        # No shortcut: Ctrl+Shift+N is reserved for terminal use
         act_new_folder.triggered.connect(lambda: self.tree_widget.add_new_folder())
         menu_file.addAction(act_new_folder)
 
         menu_file.addSeparator()
 
         act_open = QAction(get_icon("upload"), tr("import_xml", lang), self)
-        act_open.setShortcut("Ctrl+O")
+        # No shortcut: Ctrl+O conflicts with nano (Write Out) and other terminal apps
         act_open.triggered.connect(self.import_xml)
         menu_file.addAction(act_open)
 
         act_save = QAction(get_icon("download"), tr("export_xml", lang), self)
-        act_save.setShortcut("Ctrl+S")
+        # No shortcut: Ctrl+S conflicts with terminal flow control (XOFF) and nano
         act_save.triggered.connect(self.export_xml)
         menu_file.addAction(act_save)
 
         menu_file.addSeparator()
 
         act_exit = QAction(get_icon("close"), tr("exit", lang), self)
-        act_exit.setShortcut("Ctrl+Q")
+        # No shortcut: Ctrl+Q conflicts with terminal apps
         act_exit.triggered.connect(self.close)
         menu_file.addAction(act_exit)
 
@@ -652,31 +657,97 @@ class MainWindow(QMainWindow):
         if node and not node.is_container():
             self.session_tabs.open_session(node)
 
+    def _prompt_and_import_nodes(self, imported_root: ConnectionNode, format_name: str, file_path: str):
+        """Prompts user for root folder name & icon before effectively appending imported nodes."""
+        suggested_name = self.tree_widget.get_suggested_import_folder_name(base_name="Imported from File")
+        dialog = ImportFolderDialog(self, default_name=suggested_name, default_icon="Folder")
+        if dialog.exec() == ImportFolderDialog.DialogCode.Accepted:
+            folder_name = dialog.get_folder_name()
+            folder_icon = dialog.get_folder_icon()
+            import_folder = self.tree_widget.import_nodes_into_new_folder(
+                imported_root, folder_name=folder_name, folder_icon=folder_icon
+            )
+            self.current_file_path = file_path
+            self._auto_save_connections()
+            self.statusBar().showMessage(
+                f"Imported {format_name} connections into '{import_folder.name}' from {os.path.basename(file_path)}"
+            )
+
     def import_xml(self):
-        """Opens dialog to import mRemoteNG confCons.xml connection file."""
+        """Opens dialog to import connection files."""
         file_path, _ = QFileDialog.getOpenFileName(
-            self, tr("import_xml", self.settings.language), "", "mRemoteNG XML (*.xml);;All Files (*)"
+            self,
+            tr("import_xml", self.settings.language),
+            "",
+            "All Supported Connection Files (*.xml *.rdg *.yml *.yaml *.txt);;XML Connections (*.xml);;RDCMan RDG (*.rdg *.xml);;Asbrú Connection Manager (*.yml *.yaml *.txt);;All Files (*)"
         )
         if not file_path:
             return
 
-        dialog = MasterPasswordDialog(self, is_default=(self.master_password == "mR3m"))
-        if dialog.exec() == MasterPasswordDialog.DialogCode.Accepted:
-            self.master_password = dialog.get_password()
+        ext = os.path.splitext(file_path)[1].lower()
+
+        # Check if file is Asbrú YAML (.yml, .yaml, or contains Asbrú markers)
+        is_asbru = ext in (".yml", ".yaml")
+        if not is_asbru:
             try:
-                parser = mRemoteNGXmlParser(master_password=self.master_password)
-                root_node, ver = parser.parse_file(file_path, is_import=True)
-                self.tree_widget.load_tree(root_node)
-                self.current_file_path = file_path
-                self._auto_save_connections()
-                self.statusBar().showMessage(f"Loaded mRemoteNG connections from {os.path.basename(file_path)} (v{ver})")
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    sample = f.read(2048)
+                    if "__PAC__" in sample or "_is_group" in sample:
+                        is_asbru = True
+            except Exception:
+                pass
+
+        if is_asbru:
+            try:
+                parser = AsbruYamlParser()
+                root_node = parser.parse_file(file_path)
+                self._prompt_and_import_nodes(root_node, "Asbrú", file_path)
+                return
             except Exception as e:
-                QMessageBox.critical(self, "Import Error", f"Failed to parse mRemoteNG XML:\n{str(e)}")
+                if not ext.endswith((".xml", ".rdg")):
+                    QMessageBox.critical(self, "Import Error", f"Failed to parse Asbrú YAML file:\n{str(e)}")
+                    return
+
+        # Handle XML Formats (RDCMan / SecureCRT / Generic XML)
+        try:
+            tree = ET.parse(file_path)
+            root_elem = tree.getroot()
+        except Exception as e:
+            QMessageBox.critical(self, "Import Error", f"Failed to read connection file:\n{str(e)}")
+            return
+
+        if root_elem.tag == "RDCMan":
+            # Microsoft RDCMan RDG/XML
+            try:
+                parser = RdcmanXmlParser()
+                root_node = parser.parse_file(file_path)
+                self._prompt_and_import_nodes(root_node, "RDCMan", file_path)
+            except Exception as e:
+                QMessageBox.critical(self, "Import Error", f"Failed to parse RDCMan XML:\n{str(e)}")
+        elif root_elem.tag == "VanDyke":
+            # SecureCRT XML Export
+            try:
+                parser = SecureCRTXmlParser()
+                root_node = parser.parse_file(file_path)
+                self._prompt_and_import_nodes(root_node, "SecureCRT", file_path)
+            except Exception as e:
+                QMessageBox.critical(self, "Import Error", f"Failed to parse SecureCRT XML:\n{str(e)}")
+        else:
+            # Generic / Encrypted XML Connections
+            dialog = MasterPasswordDialog(self, is_default=(self.master_password == "mR3m"))
+            if dialog.exec() == MasterPasswordDialog.DialogCode.Accepted:
+                self.master_password = dialog.get_password()
+                try:
+                    parser = mRemoteNGXmlParser(master_password=self.master_password)
+                    root_node, ver = parser.parse_file(file_path, is_import=True)
+                    self._prompt_and_import_nodes(root_node, "XML", file_path)
+                except Exception as e:
+                    QMessageBox.critical(self, "Import Error", f"Failed to parse XML connection file:\n{str(e)}")
 
     def export_xml(self):
-        """Exports connection tree to mRemoteNG confCons.xml format."""
+        """Exports connection tree to XML format."""
         file_path, _ = QFileDialog.getSaveFileName(
-            self, tr("export_xml", self.settings.language), "confCons.xml", "mRemoteNG XML (*.xml);;All Files (*)"
+            self, tr("export_xml", self.settings.language), "connections.xml", "Connections XML (*.xml);;All Files (*)"
         )
         if not file_path:
             return
