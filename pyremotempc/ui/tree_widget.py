@@ -1,6 +1,6 @@
 import copy
 import uuid
-from typing import Optional
+from typing import Optional, List
 from PySide6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QMenu, QMessageBox, QInputDialog
 )
@@ -13,13 +13,15 @@ from pyremotempc.ui.icon_manager import get_icon, get_node_icon
 class ConnectionTreeWidget(QTreeWidget):
     """
     Hierarchical Connections and Folders Tree Widget.
+    Persists expand/collapse state per node ID in user settings.
     """
     node_selected = Signal(ConnectionNode)
     node_activated = Signal(ConnectionNode)  # Double click / Enter to connect
     tree_changed = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, settings=None):
         super().__init__(parent)
+        self._settings = settings  # SettingsManager instance for persisting expand state
         self.setHeaderLabel("Connections")
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
@@ -28,6 +30,10 @@ class ConnectionTreeWidget(QTreeWidget):
         self.itemSelectionChanged.connect(self._on_selection_changed)
         self.currentItemChanged.connect(self._on_current_item_changed)
         self.itemDoubleClicked.connect(self._on_item_double_clicked)
+
+        # Save expansion state whenever a folder is expanded or collapsed
+        self.itemExpanded.connect(self._on_expansion_changed)
+        self.itemCollapsed.connect(self._on_expansion_changed)
 
         self.setDragEnabled(True)
         self.setAcceptDrops(True)
@@ -70,21 +76,88 @@ class ConnectionTreeWidget(QTreeWidget):
             _filter_item_recursive(top_item)
         self.setUpdatesEnabled(True)
 
+    # ── Expansion state persistence ──────────────────────────────────────────
+
+    def _on_expansion_changed(self, item=None):
+        """Saves currently expanded node IDs to settings."""
+        if not self._settings:
+            return
+        expanded_ids: List[str] = []
+        self._collect_expanded_ids(self.invisibleRootItem(), expanded_ids)
+        self._settings.set("tree_expanded_ids", expanded_ids)
+
+    def _collect_expanded_ids(self, parent_item, result: List[str]):
+        count = parent_item.childCount() if isinstance(parent_item, QTreeWidgetItem) else self.topLevelItemCount()
+        for i in range(count):
+            item = parent_item.child(i) if isinstance(parent_item, QTreeWidgetItem) else self.topLevelItem(i)
+            node: ConnectionNode = item.data(0, Qt.ItemDataRole.UserRole)
+            if node and node.is_container() and item.isExpanded():
+                result.append(node.id)
+            self._collect_expanded_ids(item, result)
+
+    def _restore_expansion_state(self, expanded_ids: List[str]):
+        """Restores tree item expansion state from saved node IDs."""
+        expanded_set = set(expanded_ids)
+        self._apply_expansion_recursive(self.invisibleRootItem(), expanded_set)
+
+    def _apply_expansion_recursive(self, parent_item, expanded_set: set):
+        count = parent_item.childCount() if isinstance(parent_item, QTreeWidgetItem) else self.topLevelItemCount()
+        has_root_in_set = any(k.startswith("ROOT_") for k in expanded_set)
+        for i in range(count):
+            item = parent_item.child(i) if isinstance(parent_item, QTreeWidgetItem) else self.topLevelItem(i)
+            node: ConnectionNode = item.data(0, Qt.ItemDataRole.UserRole)
+            if node and node.is_container():
+                is_root = (node == self.root_node or node.id == self.root_node.id or node.id.startswith("ROOT_") or getattr(node, "parent_id", None) is None)
+                if is_root and not has_root_in_set:
+                    should_expand = True
+                else:
+                    should_expand = node.id in expanded_set
+                item.setExpanded(should_expand)
+            self._apply_expansion_recursive(item, expanded_set)
+
+    # ── Load / Populate ───────────────────────────────────────────────────
+
     def load_tree(self, root_node: ConnectionNode):
-        """Loads a ConnectionNode tree into the widget."""
+        """Loads a ConnectionNode tree into the widget, restoring saved expansion state."""
         if root_node and root_node.name and root_node.name.strip().lower() in ("conexiones", "connections"):
             root_node.name = "Connections"
+
+        # Read saved expansion state BEFORE clear() triggers itemCollapsed signals!
+        saved_ids = self._settings.get("tree_expanded_ids", None) if self._settings else None
+
+        self.blockSignals(True)
+        self.setUpdatesEnabled(False)
         self.clear()
         self.root_node = root_node
-        self.setUpdatesEnabled(False)
         self._populate_item(self.invisibleRootItem(), root_node)
-        self.expandAll()
+
+        if saved_ids is None:
+            self.expandAll()
+        else:
+            self._restore_expansion_state(saved_ids)
+
         self.setUpdatesEnabled(True)
+        self.blockSignals(False)
+
+        # Save expansion state if this was first run
+        if saved_ids is None:
+            self._on_expansion_changed()
 
         # Select root "Connections" node by default on startup
         if self.topLevelItemCount() > 0:
             top_item = self.topLevelItem(0)
             self.setCurrentItem(top_item)
+
+    def _expand_recursive(self, item: QTreeWidgetItem, expand: bool = True):
+        """Recursively expands or collapses an item and all its child items."""
+        self.blockSignals(True)
+        def _do_expand(it: QTreeWidgetItem):
+            it.setExpanded(expand)
+            for i in range(it.childCount()):
+                _do_expand(it.child(i))
+        _do_expand(item)
+        self.blockSignals(False)
+        self._on_expansion_changed()
 
     def sync_root_node_from_ui(self):
         """Rebuilds self.root_node.children structure from current visual QTreeWidget hierarchy."""
@@ -436,6 +509,12 @@ class ConnectionTreeWidget(QTreeWidget):
             menu.addSeparator()
             action_rename = menu.addAction(get_icon("edit"), "Rename")
             action_rename.triggered.connect(lambda: self.rename_node(node))
+
+            if node.is_container():
+                action_expand_all = menu.addAction(get_icon("folder"), "Expand All")
+                action_expand_all.triggered.connect(lambda: self._expand_recursive(item, True))
+                action_collapse_all = menu.addAction(get_icon("folder"), "Collapse All")
+                action_collapse_all.triggered.connect(lambda: self._expand_recursive(item, False))
 
             if not is_root:
                 action_delete = menu.addAction(get_icon("trash"), "Delete")

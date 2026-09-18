@@ -5,17 +5,26 @@ from pyremotempc.ui.icon_manager import get_icon
 from pyremotempc.config.version import get_version
 
 
+# Text color for links per theme — matches the main text color of each theme exactly
+_THEME_LINK_COLOR = {
+    "Dark":   "#cccccc",
+    "Light":  "#1c1c1e",
+    "Ocean":  "#e0e6ed",
+    "Forest": "#e2e8f0",
+}
+
+
 class AboutDialog(QDialog):
     """
-    Elegant About pyRemoteMPC dialog. Fully theme-aware — no hardcoded colors.
-    Displays version, supported protocols (SSH, SFTP, FTP, SCP, RDP, VNC, Telnet, Serial),
-    author contacts, and graphic credits.
+    About pyRemoteMPC dialog. Fully theme-aware.
+    Displays version, supported protocols, author contacts, and graphic credits.
     """
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, theme: str = "Dark"):
         super().__init__(parent)
         self.setWindowTitle("About pyRemoteMPC")
-        self.setFixedSize(620, 580)
+        self.setFixedSize(620, 680)
+        self._link_color = _THEME_LINK_COLOR.get(theme, "#cccccc")
         self._setup_ui()
 
     def _setup_ui(self):
@@ -73,7 +82,8 @@ class AboutDialog(QDialog):
         body_layout.setContentsMargins(18, 16, 18, 16)
         body_layout.setSpacing(0)
 
-        body_html = """
+        lc = self._link_color
+        body_html = f"""
         <div style="font-size: 11px; font-weight: normal; line-height: 1.6;">
             <p style="margin-top: 0; margin-bottom: 10px; font-size: 13px;">
                 <b>Native Python Multi-Protocol Remote Connections Manager for GNU/Linux.</b>
@@ -89,19 +99,17 @@ class AboutDialog(QDialog):
                 <li style="margin-bottom: 4px;"><b>Security Layer</b> &mdash; Master Password, PBKDF2-HMAC-SHA256, AES-256-GCM, startup auth, and Read-Only mode.</li>
             </ul>
             <hr style="border: none; border-top: 1px solid rgba(128,128,128,0.3); margin: 8px 0;" />
-            <p style="margin: 4px 0;"><b>Author:</b> Adri&aacute;n Andino</p>
-            <p style="margin: 4px 0;"><b>Contact:</b> adrianandino@pm.me</p>
-            <p style="margin: 4px 0;"><b>X:</b> @adrian_and_ino</p>
-            <p style="margin: 4px 0;"><b>GitHub:</b> https://github.com/adrianandin0/pyRemoteMPC</p>
-            <hr style="border: none; border-top: 1px solid rgba(128,128,128,0.3); margin: 8px 0;" />
-            <p style="margin: 2px 0; font-size: 10px; opacity: 0.7;">
-                Icons and graphical assets from Flaticon by magnific.
-            </p>
+            <p style="margin: 4px 0;"><b>Author:</b> <a href="https://www.linkedin.com/in/adrianandino/" style="color: {lc}; text-decoration: underline;">Adrián Andino</a></p>
+            <p style="margin: 4px 0;"><b>Contact:</b> <a href="mailto:adrianandino@pm.me" style="color: {lc}; text-decoration: underline;">adrianandino@pm.me</a></p>
+            <p style="margin: 4px 0;"><b>X:</b> <a href="https://x.com/adrian_and_ino" style="color: {lc}; text-decoration: underline;">@adrian_and_ino</a></p>
+            <p style="margin: 4px 0;"><b>Repo:</b> <a href="https://github.com/adrianandin0/pyRemoteMPC" style="color: {lc}; text-decoration: underline;">pyRemoteMPC</a></p>
+            <p style="margin: 4px 0;"><b>Credits:</b> Icons and graphical assets from <a href="https://www.flaticon.com/" style="color: {lc}; text-decoration: underline;">Flaticon</a> by <a href="https://www.flaticon.com/authors/magnific" style="color: {lc}; text-decoration: underline;">Magnific</a>.</p>
         </div>
         """
         lbl_body = QLabel(body_frame)
         lbl_body.setWordWrap(True)
         lbl_body.setTextFormat(Qt.TextFormat.RichText)
+        lbl_body.setOpenExternalLinks(True)
         lbl_body.setText(body_html)
         body_layout.addWidget(lbl_body)
 

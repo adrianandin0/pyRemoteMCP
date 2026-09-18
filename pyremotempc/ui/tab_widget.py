@@ -17,11 +17,35 @@ from pyremotempc.ui.vnc_widget import VNCWidget
 from pyremotempc.plugins.plugin_manager import PluginManager
 
 
-import ctypes
+import subprocess
 
 class OutputBridge(QObject):
     """Bridge QObject to thread-safely emit signals from background thread to Qt GUI thread."""
     output_received = Signal(str)
+
+
+def set_process_audio_muted(pid: Optional[int], mute: bool):
+    """
+    Mutes or unmutes the local audio playback of a process by PID using pactl/PipeWire.
+    Does NOT restart the session or touch the remote server.
+    """
+    if not pid:
+        return
+
+    try:
+        output = subprocess.check_output(["pactl", "list", "sink-inputs"], text=True, stderr=subprocess.DEVNULL)
+        current_index = None
+        for line in output.splitlines():
+            line_str = line.strip()
+            if line_str.startswith("Sink Input #") or line_str.startswith("Entrada del destino #"):
+                current_index = line_str.split("#")[-1].strip()
+            elif "application.process.id" in line_str:
+                val = line_str.split("=")[-1].strip().strip('"')
+                if val.isdigit() and int(val) == pid and current_index is not None:
+                    mute_val = "1" if mute else "0"
+                    subprocess.run(["pactl", "set-sink-input-mute", current_index, mute_val], check=False, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
 
 
 def format_tab_title(node: ConnectionNode) -> str:
@@ -261,6 +285,13 @@ class SessionTabWidget(QTabWidget):
         act_layout.addWidget(lbl_info)
         act_layout.addStretch()
 
+        btn_mute = QPushButton(action_bar)
+        btn_mute.setIcon(get_icon("unmute"))
+        btn_mute.setCheckable(True)
+        btn_mute.setChecked(False)
+        btn_mute.setToolTip("Mute Audio")
+        act_layout.addWidget(btn_mute)
+
         btn_toggle_log = QPushButton(tr("sftp_log_btn", lang).replace("📜 ", ""), action_bar)
         btn_toggle_log.setIcon(get_icon("log"))
         btn_toggle_log.setCheckable(True)
@@ -268,7 +299,7 @@ class SessionTabWidget(QTabWidget):
         act_layout.addWidget(btn_toggle_log)
 
         btn_reconnect = QPushButton(action_bar)
-        btn_reconnect.setIcon(get_icon("connect"))
+        btn_reconnect.setIcon(get_icon("refresh"))
         btn_reconnect.setToolTip(tr("reconnect_rdp", lang))
         act_layout.addWidget(btn_reconnect)
 
@@ -352,6 +383,19 @@ class SessionTabWidget(QTabWidget):
             rdp_engine.start_session(on_output=rdp_bridge.output_received.emit, win_id=win_id, width=w, height=h)
 
         btn_reconnect.clicked.connect(start_rdp)
+
+        def toggle_mute(muted: bool):
+            if muted:
+                btn_mute.setIcon(get_icon("mute"))
+                btn_mute.setToolTip("Unmute Audio")
+            else:
+                btn_mute.setIcon(get_icon("unmute"))
+                btn_mute.setToolTip("Mute Audio")
+
+            if rdp_engine.process and rdp_engine.process.poll() is None:
+                set_process_audio_muted(rdp_engine.process.pid, muted)
+
+        btn_mute.toggled.connect(toggle_mute)
         
         def on_embed_resized(w, h):
             if not rdp_engine.process or rdp_engine.process.poll() is not None:
@@ -394,7 +438,7 @@ class SessionTabWidget(QTabWidget):
         act_layout.addWidget(btn_toggle_log)
 
         btn_reconnect = QPushButton("Reconnect VNC", action_bar)
-        btn_reconnect.setIcon(get_icon("connect"))
+        btn_reconnect.setIcon(get_icon("refresh"))
         act_layout.addWidget(btn_reconnect)
 
         vbox.addWidget(action_bar)

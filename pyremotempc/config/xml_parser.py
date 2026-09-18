@@ -47,10 +47,10 @@ class mRemoteNGXmlParser:
 
         root_tag = _clean_tag(root_elem.tag).lower()
         if root_tag in ("connections", "mremoteng"):
-            root_node = self._parse_node(root_elem, version, iterations, is_import=is_import)
+            root_node = self._parse_node(root_elem, version, iterations, is_import=is_import, is_root=True)
         else:
             root_node_elem = self._find_first_node(root_elem)
-            root_node = self._parse_node(root_node_elem if root_node_elem is not None else root_elem, version, iterations, is_import=is_import)
+            root_node = self._parse_node(root_node_elem if root_node_elem is not None else root_elem, version, iterations, is_import=is_import, is_root=True)
 
         # Post-process inheritance down the tree
         self._apply_inheritance(root_node)
@@ -66,10 +66,10 @@ class mRemoteNGXmlParser:
 
         root_tag = _clean_tag(root_elem.tag).lower()
         if root_tag in ("connections", "mremoteng"):
-            root_node = self._parse_node(root_elem, version, iterations, is_import=is_import)
+            root_node = self._parse_node(root_elem, version, iterations, is_import=is_import, is_root=True)
         else:
             root_node_elem = self._find_first_node(root_elem)
-            root_node = self._parse_node(root_node_elem if root_node_elem is not None else root_elem, version, iterations, is_import=is_import)
+            root_node = self._parse_node(root_node_elem if root_node_elem is not None else root_elem, version, iterations, is_import=is_import, is_root=True)
 
         self._apply_inheritance(root_node)
         return root_node, version
@@ -97,7 +97,7 @@ class mRemoteNGXmlParser:
         decrypted = decrypt_legacy_password(encrypted_val, self.master_password)
         return decrypted
 
-    def _parse_node(self, elem: ET.Element, version: str, iterations: int = 1000, is_import: bool = False) -> ConnectionNode:
+    def _parse_node(self, elem: ET.Element, version: str, iterations: int = 1000, is_import: bool = False, is_root: bool = False) -> ConnectionNode:
         name = _get_case_insensitive_attr(elem, ["Name"], "Unnamed")
         tag_clean = _clean_tag(elem.tag).lower()
         if tag_clean in ("connections", "mremoteng") or name.lower() in ("connections", "conexiones"):
@@ -162,6 +162,8 @@ class mRemoteNGXmlParser:
         )
         if node_id:
             node.id = node_id
+        elif is_root:
+            node.id = f"ROOT_{name.strip()}"
 
         for child_elem in self._find_all_child_nodes(elem):
             child_node = self._parse_node(child_elem, version, iterations, is_import=is_import)

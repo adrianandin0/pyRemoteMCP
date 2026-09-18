@@ -130,7 +130,7 @@ class MainWindow(QMainWindow):
         conn_header_layout.addWidget(self.edit_tree_search, 0, Qt.AlignmentFlag.AlignVCenter)
         conn_vbox.addWidget(conn_header_widget)
 
-        self.tree_widget = ConnectionTreeWidget(conn_container)
+        self.tree_widget = ConnectionTreeWidget(conn_container, settings=self.settings)
         self.tree_widget.setHeaderHidden(True)
         self.edit_tree_search.textChanged.connect(self.tree_widget.filter_nodes)
         conn_vbox.addWidget(self.tree_widget)
@@ -149,7 +149,7 @@ class MainWindow(QMainWindow):
         prop_header_layout.setSpacing(4)
 
         lbl_prop_icon = QLabel(prop_header_widget)
-        lbl_prop_icon.setPixmap(get_icon("settings").pixmap(18, 18))
+        lbl_prop_icon.setPixmap(get_icon("options").pixmap(18, 18))
         lbl_prop_icon.setToolTip(tr("properties", self.settings.language))
         prop_header_layout.addWidget(lbl_prop_icon, 0, Qt.AlignmentFlag.AlignVCenter)
         prop_header_layout.addStretch()
@@ -314,10 +314,6 @@ class MainWindow(QMainWindow):
         act_exit.triggered.connect(self.close)
         menu_file.addAction(act_exit)
 
-        # View Menu
-        menu_view = menubar.addMenu(tr("view", lang))
-        menu_view.addAction(self.sidebar_dock.toggleViewAction())
-
         # Settings Menu
         menu_settings = menubar.addMenu(tr("settings", lang))
         act_prefs = QAction(get_icon("settings"), tr("preferences", lang), self)
@@ -364,28 +360,6 @@ class MainWindow(QMainWindow):
         act_new_folder = QAction(get_icon("folder"), tr("new_folder", lang), self)
         act_new_folder.triggered.connect(lambda: self.tree_widget.add_new_folder())
         toolbar.addAction(act_new_folder)
-
-        toolbar.addSeparator()
-
-        act_connect = QAction(get_icon("connect"), tr("connect", lang), self)
-        act_connect.triggered.connect(self._connect_selected)
-        toolbar.addAction(act_connect)
-
-        toolbar.addSeparator()
-
-        act_import = QAction(get_icon("upload"), tr("import_xml", lang), self)
-        act_import.triggered.connect(self.import_xml)
-        toolbar.addAction(act_import)
-
-        act_export = QAction(get_icon("download"), tr("export_xml", lang), self)
-        act_export.triggered.connect(self.export_xml)
-        toolbar.addAction(act_export)
-
-        toolbar.addSeparator()
-
-        act_prefs_tb = QAction(get_icon("settings"), tr("preferences", lang), self)
-        act_prefs_tb.triggered.connect(self._open_preferences)
-        toolbar.addAction(act_prefs_tb)
 
     def _create_quick_connect_bar(self):
         """Creates top Quick Connect bar for manual IP/host input, protocol selection and Save option."""
@@ -601,6 +575,8 @@ class MainWindow(QMainWindow):
                 legacy_ssh=True
             )
 
+        quick_node.is_quick_connect = True
+
         # Clear focus from quick connect input fields so Enter key goes to terminal
         self.qc_host.clearFocus()
         self.qc_domain.clearFocus()
@@ -793,7 +769,7 @@ class MainWindow(QMainWindow):
 
     def _show_about(self):
         from pyremotempc.ui.dialogs.about_dialog import AboutDialog
-        dlg = AboutDialog(self)
+        dlg = AboutDialog(self, theme=self.settings.theme)
         dlg.exec()
 
     def _toggle_sidebar(self):

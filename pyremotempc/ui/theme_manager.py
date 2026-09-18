@@ -50,9 +50,6 @@ QTreeWidget::item, QTreeView::item {
     background-color: #1e1e1e;
     color: #cccccc;
 }
-QTreeWidget::branch, QTreeView::branch {
-    background-color: #1e1e1e;
-}
 QTreeWidget::item:selected, QTreeView::item:selected {
     background-color: #2a5080;
     color: #ffffff;
@@ -117,9 +114,6 @@ QTreeWidget::item, QTreeView::item {
     padding: 3px;
     background-color: #ffffff;
     color: #1c1c1e;
-}
-QTreeWidget::branch, QTreeView::branch {
-    background-color: #ffffff;
 }
 QTreeWidget::item:selected, QTreeView::item:selected {
     background-color: #4a8fd4;
@@ -186,9 +180,6 @@ QTreeWidget::item, QTreeView::item {
     background-color: #0d1b2a;
     color: #e0e6ed;
 }
-QTreeWidget::branch, QTreeView::branch {
-    background-color: #0d1b2a;
-}
 QTreeWidget::item:selected, QTreeView::item:selected {
     background-color: #415a77;
     color: #ffffff;
@@ -253,9 +244,6 @@ QTreeWidget::item, QTreeView::item {
     padding: 3px;
     background-color: #142217;
     color: #e2e8f0;
-}
-QTreeWidget::branch, QTreeView::branch {
-    background-color: #142217;
 }
 QTreeWidget::item:selected, QTreeView::item:selected {
     background-color: #2d4a34;
