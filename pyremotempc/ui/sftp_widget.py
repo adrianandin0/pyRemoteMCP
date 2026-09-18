@@ -59,7 +59,6 @@ class SFTPListWorker(QThread):
             self.finished_signal.emit(False, self.remote_path, [], str(e))
 
 
-import time
 from threading import Event
 from pyremotempc.ui.sftp_transfer_dialog import SFTPTransferDialog
 

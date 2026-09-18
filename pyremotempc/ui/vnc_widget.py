@@ -349,8 +349,10 @@ class VNCWidget(QWidget):
     """
 
     log_emitted = Signal(str)
+    log_output = log_emitted  # Signal alias for API consistency
     fallback_required = Signal(str)
     connection_failed = Signal(str)
+    status_changed = Signal(str)
 
     def __init__(self, hostname: str, port: int = 5900, password: str = "", parent=None):
         super().__init__(parent)
@@ -471,14 +473,21 @@ class VNCWidget(QWidget):
         self.rfb_thread.copy_rect_update.connect(self._on_copy_rect)
         self.rfb_thread.desktop_resize.connect(self._on_desktop_resize)
         self.rfb_thread.log_output.connect(self.log_emitted.emit)
+        self.rfb_thread.status_changed.connect(self._on_status_changed)
         self.rfb_thread.connection_failed.connect(self._on_connection_failed)
         self.rfb_thread.fallback_required.connect(self.fallback_required.emit)
         self.rfb_thread.password_required.connect(self._on_password_required)
         self.rfb_thread.start()
 
+    def _on_status_changed(self, msg: str):
+        self.status_msg = msg
+        self.status_changed.emit(msg)
+        self.update()
+
     def _on_password_required(self):
         self.is_connected = False
         self.stop_session()
+        self.log_emitted.emit("[VNC Auth Required]: Password required by server. Displaying password prompt...\n")
         self.lbl_auth_sub.setText(f"Server {self.hostname}:{self.port} requires a password:")
         self.auth_card.setVisible(True)
         self.txt_auth_password.clear()
@@ -510,6 +519,7 @@ class VNCWidget(QWidget):
                 thread.copy_rect_update.disconnect()
                 thread.desktop_resize.disconnect()
                 thread.log_output.disconnect()
+                thread.status_changed.disconnect()
                 thread.connection_failed.disconnect()
                 thread.fallback_required.disconnect()
                 thread.password_required.disconnect()
