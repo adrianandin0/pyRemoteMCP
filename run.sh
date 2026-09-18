@@ -2,10 +2,10 @@
 # Script de inicio rápido para pyRemoteMPC
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV_PYTHON="/home/adrian/.gemini/antigravity/scratch/mRemoteNG/.venv/bin/python3"
-
-if [ -f "$VENV_PYTHON" ]; then
-    PYTHON_CMD="$VENV_PYTHON"
+if [ -f "${SCRIPT_DIR}/.venv/bin/python3" ]; then
+    PYTHON_CMD="${SCRIPT_DIR}/.venv/bin/python3"
+elif [ -f "/opt/pyremotempc/.venv/bin/python3" ]; then
+    PYTHON_CMD="/opt/pyremotempc/.venv/bin/python3"
 else
     PYTHON_CMD="python3"
 fi

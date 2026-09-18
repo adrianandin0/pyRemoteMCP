@@ -107,7 +107,9 @@ pyRemoteMPC/
         ├── tab_widget.py         # Active session tab manager
         ├── terminal_widget.py    # Terminal console renderer
         ├── preferences_dialog.py # Preferences & Options (General, Terminal, RDP, Security)
+        ├── sftp_transfer_dialog.py # SFTP background transfer progress dialog
         ├── sftp_widget.py        # Graphical file transfer interface
+        ├── theme_manager.py      # QSS visual styling & dark theme manager
         ├── vnc_widget.py         # VNC rendering widget
         ├── icon_manager.py       # PNG icon loader per protocol and node type
         ├── dialogs/
@@ -125,7 +127,8 @@ pyRemoteMPC/
 ### Prerequisites
 - **Python**: 3.10 or higher.
 - **Operating System**: GNU/Linux.
-- **System Packages**: `python3`, `python3-pip`, `python3-venv`, `python3-dev`, `freerdp`, `tigervnc`, `socat`, `telnet`, `openssh-client`.
+- **System Packages**: `python3`, `python3-pip`, `python3-venv`, `python3-dev`, `freerdp` (or `freerdp2-x11`/`freerdp3-x11`), `tigervnc` (or `tigervnc-viewer`), `socat`, `telnet`, `openssh-client`, `sshpass`, `pulseaudio-utils` (`pactl`).
+- **Python Dependencies** (installed automatically via `requirements.txt` / installer): `PySide6>=6.5.0`, `cryptography>=41.0.0`, `paramiko>=3.0.0`, `pyte>=0.8.0`, `pyserial>=3.5`, `pyyaml>=6.0`.
 
 ### Automated Cross-Distro Installer
 `install.sh` automatically detects your package manager and installs all required system and Python dependencies across major Linux distributions:

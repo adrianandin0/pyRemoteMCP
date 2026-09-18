@@ -44,45 +44,45 @@ install_system_dependencies() {
     if command -v apt-get >/dev/null 2>&1; then
         info "Using APT package manager (Debian, Ubuntu, Mint, Pop!_OS, etc.)..."
         apt-get update -y
-        apt-get install -y python3 python3-pip python3-venv python3-dev socat telnet openssh-client freerdp2-x11 tigervnc-viewer || \
-        apt-get install -y python3 python3-pip python3-venv python3-dev socat telnet openssh-client freerdp3-x11 tigervnc-viewer || \
-        apt-get install -y python3 python3-pip python3-venv python3-dev socat telnet openssh-client freerdp2-bin vncviewer || true
+        apt-get install -y python3 python3-pip python3-venv python3-dev socat telnet openssh-client sshpass pulseaudio-utils freerdp2-x11 tigervnc-viewer || \
+        apt-get install -y python3 python3-pip python3-venv python3-dev socat telnet openssh-client sshpass pulseaudio-utils freerdp3-x11 tigervnc-viewer || \
+        apt-get install -y python3 python3-pip python3-venv python3-dev socat telnet openssh-client sshpass pulseaudio-utils freerdp2-bin vncviewer || true
 
     elif command -v dnf >/dev/null 2>&1; then
         info "Using DNF package manager (Fedora, RHEL, CentOS, Rocky, AlmaLinux, etc.)..."
-        dnf install -y python3 python3-pip python3-devel socat telnet openssh-clients freerdp tigervnc || \
-        dnf install -y python3 python3-pip python3-devel socat telnet openssh-clients freerdp2 tigervnc || true
+        dnf install -y python3 python3-pip python3-devel socat telnet openssh-clients sshpass pulseaudio-utils freerdp tigervnc || \
+        dnf install -y python3 python3-pip python3-devel socat telnet openssh-clients sshpass pulseaudio-utils freerdp2 tigervnc || true
 
     elif command -v yum >/dev/null 2>&1; then
         info "Using YUM package manager (RHEL 7, CentOS 7, Amazon Linux, etc.)..."
-        yum install -y python3 python3-pip python3-devel socat telnet openssh-clients freerdp tigervnc || true
+        yum install -y python3 python3-pip python3-devel socat telnet openssh-clients sshpass pulseaudio-utils freerdp tigervnc || true
 
     elif command -v pacman >/dev/null 2>&1; then
         info "Using Pacman package manager (Arch Linux, Manjaro, EndeavourOS, etc.)..."
-        pacman -Sy --noconfirm python python-pip socat inetutils openssh freerdp tigervnc || true
+        pacman -Sy --noconfirm python python-pip socat inetutils openssh sshpass libpulse freerdp tigervnc || true
 
     elif command -v zypper >/dev/null 2>&1; then
         info "Using Zypper package manager (openSUSE, SLES, etc.)..."
-        zypper --non-interactive install python3 python3-pip python3-devel socat telnet openssh freerdp tigervnc-viewer || true
+        zypper --non-interactive install python3 python3-pip python3-devel socat telnet openssh sshpass pulseaudio-utils freerdp tigervnc-viewer || true
 
     elif command -v apk >/dev/null 2>&1; then
         info "Using APK package manager (Alpine Linux)..."
-        apk add --no-cache python3 py3-pip python3-dev socat telnet openssh-client freerdp tigervnc || true
+        apk add --no-cache python3 py3-pip python3-dev socat telnet openssh-client sshpass pulseaudio-utils freerdp tigervnc || true
 
     elif command -v xbps-install >/dev/null 2>&1; then
         info "Using XBPS package manager (Void Linux)..."
-        xbps-install -Sy python3 python3-pip socat telnet openssh freerdp tigervnc || true
+        xbps-install -Sy python3 python3-pip socat telnet openssh sshpass pulseaudio-utils freerdp tigervnc || true
 
     elif command -v eopkg >/dev/null 2>&1; then
         info "Using EOPKG package manager (Solus)..."
-        eopkg install -y python3 python3-pip socat telnet openssh freerdp tigervnc || true
+        eopkg install -y python3 python3-pip socat telnet openssh sshpass pulseaudio-utils freerdp tigervnc || true
 
     elif command -v emerge >/dev/null 2>&1; then
         info "Using Portage package manager (Gentoo)..."
-        emerge --noreplace dev-lang/python dev-python/pip net-misc/socat net-misc/telnet-bsd net-misc/openssh net-misc/freerdp net-misc/tigervnc || true
+        emerge --noreplace dev-lang/python dev-python/pip net-misc/socat net-misc/telnet-bsd net-misc/openssh net-misc/sshpass media-sound/pulseaudio-utils net-misc/freerdp net-misc/tigervnc || true
 
     else
-        warn "Package manager not recognized automatically. Ensure Python 3, Pip, FreeRDP, TigerVNC, socat, telnet, and OpenSSH are installed."
+        warn "Package manager not recognized automatically. Ensure Python 3, Pip, FreeRDP, TigerVNC, socat, telnet, pactl (pulseaudio-utils), and OpenSSH are installed."
     fi
 }
 
@@ -108,6 +108,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cp -r "${SCRIPT_DIR}/pyremotempc" "${INSTALL_DIR}/"
 cp "${SCRIPT_DIR}/requirements.txt" "${INSTALL_DIR}/"
 cp "${SCRIPT_DIR}/setup.py" "${INSTALL_DIR}/" 2>/dev/null || true
+cp "${SCRIPT_DIR}/version.txt" "${INSTALL_DIR}/" 2>/dev/null || true
 cp "${SCRIPT_DIR}/pyremotempc.desktop" "${INSTALL_DIR}/" 2>/dev/null || true
 cp "${SCRIPT_DIR}/LICENSE" "${INSTALL_DIR}/" 2>/dev/null || true
 cp "${SCRIPT_DIR}/README.md" "${INSTALL_DIR}/" 2>/dev/null || true

@@ -28,6 +28,8 @@ setup(
         "cryptography>=41.0.0",
         "paramiko>=3.0.0",
         "pyte>=0.8.0",
+        "pyserial>=3.5",
+        "pyyaml>=6.0",
     ],
     entry_points={
         "console_scripts": [
