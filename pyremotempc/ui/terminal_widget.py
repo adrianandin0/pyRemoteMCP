@@ -1,4 +1,3 @@
-import builtins
 import os
 import re
 import datetime
@@ -7,8 +6,8 @@ import html
 from collections import defaultdict
 import pyte
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QPlainTextEdit, QFileDialog, QMessageBox, QMenu
-from PySide6.QtGui import QFont, QTextCursor, QKeyEvent, QInputMethodEvent
-from PySide6.QtCore import Qt, Signal, QObject, QEvent
+from PySide6.QtGui import QFont, QKeyEvent, QInputMethodEvent
+from PySide6.QtCore import Qt, Signal, QObject
 from pyremotempc.engine.ssh_engine import SSHEngine
 from pyremotempc.engine.ssh1_engine import SSH1Engine
 from pyremotempc.engine.telnet_engine import TelnetEngine
@@ -391,7 +390,6 @@ class TerminalWidget(QWidget):
     Uses 'pyte' full screen terminal emulator for perfect vim, htop, nano, bash navigation,
     scrollback history, automatic file logging, TXT export, themes, and keyboard PTY forwarding.
     """
-    title_changed = Signal(str)
     session_closed = Signal()
 
     def __init__(self, node, settings_manager: Optional[SettingsManager] = None, parent=None):
