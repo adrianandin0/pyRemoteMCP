@@ -25,17 +25,21 @@ def term_debug(msg: str):
 
 
 THEME_STYLES = {
-    "Dark": "QPlainTextEdit { background-color: #1e1e1e; color: #d4d4d4; selection-background-color: #264f78; }",
-    "Classic Green": "QPlainTextEdit { background-color: #0c100c; color: #00ff66; selection-background-color: #005522; }",
+    "Classic Dark": "QPlainTextEdit { background-color: #1e1e1e; color: #d4d4d4; selection-background-color: #264f78; }",
+    "Green / Matrix": "QPlainTextEdit { background-color: #0c100c; color: #00ff66; selection-background-color: #005522; }",
     "Amber": "QPlainTextEdit { background-color: #120c02; color: #ffb000; selection-background-color: #664400; }",
     "Light": "QPlainTextEdit { background-color: #f5f5f5; color: #111111; selection-background-color: #b3d7ff; }",
+    "Dark": "QPlainTextEdit { background-color: #1e1e1e; color: #d4d4d4; selection-background-color: #264f78; }",
+    "Classic Green": "QPlainTextEdit { background-color: #0c100c; color: #00ff66; selection-background-color: #005522; }",
 }
 
 THEME_DEFAULTS = {
-    "Dark": ("#d4d4d4", "#1e1e1e"),
-    "Classic Green": ("#00ff66", "#0c100c"),
+    "Classic Dark": ("#d4d4d4", "#1e1e1e"),
+    "Green / Matrix": ("#00ff66", "#0c100c"),
     "Amber": ("#ffb000", "#120c02"),
     "Light": ("#111111", "#f5f5f5"),
+    "Dark": ("#d4d4d4", "#1e1e1e"),
+    "Classic Green": ("#00ff66", "#0c100c"),
 }
 
 COLOR_PALETTE = {
@@ -394,6 +398,7 @@ class TerminalWidget(QWidget):
         super().__init__(parent)
         self.node = node
         self.settings = settings_manager or SettingsManager()
+        self.log_file = None
 
         self.bridge = OutputBridge(self)
         self.bridge.output_received.connect(self.append_text)
@@ -466,8 +471,10 @@ class TerminalWidget(QWidget):
         font = QFont(self.settings.font_family, self.settings.font_size)
         self.text_edit.setFont(font)
 
-        style = THEME_STYLES.get(self.settings.theme, THEME_STYLES["Dark"])
+        c_theme = self.settings.console_theme
+        style = THEME_STYLES.get(c_theme, THEME_STYLES["Classic Dark"])
         self.text_edit.setStyleSheet(style)
+        self.append_text("")
 
     def _init_session_logger(self):
         try:
@@ -609,7 +616,8 @@ class TerminalWidget(QWidget):
             if "\x1b[2J" in text or "\x1b[3J" in text:
                 self.screen.history.top.clear()
 
-        default_fg, default_bg = THEME_DEFAULTS.get(self.settings.theme, THEME_DEFAULTS["Dark"])
+        c_theme = self.settings.console_theme
+        default_fg, default_bg = THEME_DEFAULTS.get(c_theme, THEME_DEFAULTS["Classic Dark"])
 
         cursor_y = self.screen.cursor.y
         cursor_x = self.screen.cursor.x
@@ -630,7 +638,16 @@ class TerminalWidget(QWidget):
             c_x = cursor_x if r_idx == cursor_y else -1
             p_list.append(row_to_html(self.screen.buffer[r_idx], self.screen.columns, default_fg, default_bg, cursor_x=c_x))
 
-        full_html = "".join(p_list)
+        font_family = html.escape(self.settings.font_family)
+        font_size = self.settings.font_size
+        full_html = (
+            f"<html><head><style>"
+            f"body {{ background-color: {default_bg}; color: {default_fg}; "
+            f"font-family: '{font_family}', monospace; font-size: {font_size}pt; margin:0; padding:0; line-height: 1.15; }}"
+            f"p {{ margin: 0; padding: 0; white-space: pre-wrap; font-size: {font_size}pt; }}"
+            f"span {{ font-size: {font_size}pt; }}"
+            f"</style></head><body>{''.join(p_list)}</body></html>"
+        )
         self.text_edit.document().setHtml(full_html)
 
         # Position text cursor to match pyte virtual cursor coordinates
@@ -649,10 +666,11 @@ class TerminalWidget(QWidget):
         self.text_edit.viewport().update()
 
         # Write raw received text to session log file if enabled
-        if self.log_file and not self.log_file.closed:
+        log_f = getattr(self, "log_file", None)
+        if log_f and not log_f.closed:
             try:
-                self.log_file.write(text)
-                self.log_file.flush()
+                log_f.write(text)
+                log_f.flush()
             except Exception:
                 pass
 

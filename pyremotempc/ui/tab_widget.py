@@ -74,6 +74,28 @@ def format_tab_title(node: ConnectionNode) -> str:
     return f"{proto_str}: {display_name}"
 
 
+def format_action_bar_info(node: ConnectionNode) -> str:
+    """
+    Formats sub-header text for session tab action bar:
+    Shows ONLY hostname/ip:port or serial_port:baudrate without protocol prefix or outer parentheses.
+    """
+    if not node:
+        return ""
+
+    proto = (getattr(node, "protocol", "") or "").upper()
+    if proto == "SERIAL":
+        port = str(getattr(node, "serial_port", "") or getattr(node, "hostname", "") or "/dev/ttyUSB0").strip()
+        baud = str(getattr(node, "baudrate", 9600)).strip()
+        return f"{port}:{baud}"
+
+    host = (getattr(node, "hostname", "") or "").strip()
+    port = getattr(node, "port", None)
+
+    if port:
+        return f"{host}:{port}"
+    return host
+
+
 class X11EmbedWidget(QWidget):
     """A QWidget container for embedded X11 protocol client windows."""
     
@@ -178,7 +200,7 @@ class SessionTabWidget(QTabWidget):
         act_layout = QHBoxLayout(action_bar)
         act_layout.setContentsMargins(6, 2, 6, 2)
 
-        lbl_info = QLabel(f"{format_tab_title(node)} ({node.hostname}:{node.port})", action_bar)
+        lbl_info = QLabel(format_action_bar_info(node), action_bar)
         lbl_info.setStyleSheet("font-size: 11px; font-weight: normal;")
         act_layout.addWidget(lbl_info)
         act_layout.addStretch()
@@ -215,7 +237,7 @@ class SessionTabWidget(QTabWidget):
         act_layout = QHBoxLayout(action_bar)
         act_layout.setContentsMargins(6, 2, 6, 2)
 
-        lbl_info = QLabel(f"{format_tab_title(node)} ({node.hostname}:{node.port})", action_bar)
+        lbl_info = QLabel(format_action_bar_info(node), action_bar)
         lbl_info.setStyleSheet("font-size: 11px; font-weight: normal;")
         act_layout.addWidget(lbl_info)
 
@@ -280,7 +302,7 @@ class SessionTabWidget(QTabWidget):
         act_layout = QHBoxLayout(action_bar)
         act_layout.setContentsMargins(6, 2, 6, 2)
 
-        lbl_info = QLabel(f"{format_tab_title(node)} ({node.hostname}:{node.port})", action_bar)
+        lbl_info = QLabel(format_action_bar_info(node), action_bar)
         lbl_info.setStyleSheet("font-size: 11px; font-weight: normal;")
         act_layout.addWidget(lbl_info)
         act_layout.addStretch()
@@ -425,7 +447,7 @@ class SessionTabWidget(QTabWidget):
         act_layout = QHBoxLayout(action_bar)
         act_layout.setContentsMargins(6, 2, 6, 2)
 
-        lbl_info = QLabel(f"{format_tab_title(node)} ({node.hostname}:{node.port})", action_bar)
+        lbl_info = QLabel(format_action_bar_info(node), action_bar)
         lbl_info.setStyleSheet("font-size: 11px; font-weight: normal;")
         act_layout.addWidget(lbl_info)
 
@@ -666,7 +688,7 @@ class SessionTabWidget(QTabWidget):
             if hasattr(widget, "node") and widget.node:
                 widget.node.name = clean_title
                 if hasattr(widget, "lbl_info") and widget.lbl_info:
-                    widget.lbl_info.setText(f"{format_tab_title(widget.node)} ({widget.node.hostname}:{widget.node.port})")
+                    widget.lbl_info.setText(format_action_bar_info(widget.node))
 
     def _duplicate_tab(self, index: int):
         widget = self.widget(index)
@@ -683,7 +705,7 @@ class SessionTabWidget(QTabWidget):
                 self.setTabText(i, format_tab_title(node))
                 self.setTabIcon(i, get_node_icon(node))
                 if hasattr(widget, "lbl_info") and widget.lbl_info:
-                    widget.lbl_info.setText(f"{format_tab_title(node)} ({node.hostname}:{node.port})")
+                    widget.lbl_info.setText(format_action_bar_info(node))
 
     def _save_tab_connection(self, index: int):
         widget = self.widget(index)

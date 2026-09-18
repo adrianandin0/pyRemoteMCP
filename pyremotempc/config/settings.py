@@ -12,6 +12,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "font_family": "Monospace",
     "font_size": 10,
     "theme": "Dark",
+    "console_theme": "Classic Dark",
     "master_key_salt": "",
     "master_key_hash": "",
     "sidebar_width": 260,
@@ -88,6 +89,10 @@ class SettingsManager:
     @property
     def theme(self) -> str:
         return str(self.get("theme", "Dark"))
+
+    @property
+    def console_theme(self) -> str:
+        return str(self.get("console_theme", "Classic Dark"))
 
     @property
     def enable_logging(self) -> bool:
