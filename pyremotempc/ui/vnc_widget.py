@@ -350,6 +350,7 @@ class VNCWidget(QWidget):
 
     log_emitted = Signal(str)
     fallback_required = Signal(str)
+    connection_failed = Signal(str)
 
     def __init__(self, hostname: str, port: int = 5900, password: str = "", parent=None):
         super().__init__(parent)
@@ -499,7 +500,7 @@ class VNCWidget(QWidget):
         self.start_session()
 
     def stop_session(self):
-        """Stops VNC RFB session thread safely, waiting for C++ thread to terminate."""
+        """Stops VNC RFB session thread safely, waiting for thread to terminate without hard kill."""
         if self.rfb_thread:
             thread = self.rfb_thread
             self.rfb_thread = None
@@ -511,15 +512,14 @@ class VNCWidget(QWidget):
                 thread.log_output.disconnect()
                 thread.connection_failed.disconnect()
                 thread.fallback_required.disconnect()
+                thread.password_required.disconnect()
             except Exception:
                 pass
 
             thread.stop()
             if thread.isRunning():
                 thread.quit()
-                if not thread.wait(2000):
-                    thread.terminate()
-                    thread.wait(500)
+                thread.wait(1000)
 
         self.is_connected = False
         self.update()
@@ -613,6 +613,7 @@ class VNCWidget(QWidget):
         else:
             self.status_msg = f"VNC Connection Failed: {error}"
             self.auth_card.setVisible(False)
+        self.connection_failed.emit(error)
         self.update()
 
     def _get_target_rect(self) -> QRect:

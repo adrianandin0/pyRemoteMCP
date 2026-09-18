@@ -5,7 +5,7 @@ import struct
 import select
 import threading
 import time
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.asymmetric.padding import PKCS1v15
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes

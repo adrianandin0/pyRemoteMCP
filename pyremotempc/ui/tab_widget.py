@@ -482,8 +482,15 @@ class SessionTabWidget(QTabWidget):
             cursor.insertText(text)
             txt_vnc_log.setTextCursor(cursor)
             txt_vnc_log.ensureCursorVisible()
+            if "[VNC Error]" in text or "[VNC Connection Failed]" in text or "Exited with Return Code:" in text:
+                group_log.setVisible(True)
+                btn_toggle_log.setChecked(True)
+
+        def on_vnc_connection_failed(error_msg: str):
+            append_vnc_log_safe(f"\n[VNC Connection Failed]: {error_msg}\n")
 
         vnc_widget.log_emitted.connect(append_vnc_log_safe)
+        vnc_widget.connection_failed.connect(on_vnc_connection_failed)
 
         vnc_widget.node = node
         vnc_engine = VNCEngine(hostname=node.hostname, port=node.port if node.port else 5900, password=node.password)

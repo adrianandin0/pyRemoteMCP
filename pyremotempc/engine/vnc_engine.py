@@ -150,7 +150,7 @@ class VNCEngine(BaseProtocolEngine):
         """Asynchronously polls X11 root window for VNC client window and reparents it into parent_win_id."""
         def _worker():
             try:
-                from ctypes import cdll, c_void_p, c_ulong, c_int, c_uint, c_long, POINTER, byref, c_char_p, c_ubyte, Structure
+                from ctypes import cdll, c_void_p, c_ulong, c_int, c_uint, c_long, POINTER, byref, c_char_p, c_ubyte, Structure, CFUNCTYPE
 
                 class MwmHints(Structure):
                     _fields_ = [
@@ -162,6 +162,17 @@ class VNCEngine(BaseProtocolEngine):
                     ]
 
                 x11 = cdll.LoadLibrary("libX11.so.6")
+                XErrorHandler = CFUNCTYPE(c_int, c_void_p, c_void_p)
+                def _dummy_x_err(d, e):
+                    return 0
+                c_dummy_err = XErrorHandler(_dummy_x_err)
+                try:
+                    x11.XSetErrorHandler.argtypes = [XErrorHandler]
+                    x11.XSetErrorHandler.restype = c_void_p
+                    x11.XSetErrorHandler(c_dummy_err)
+                except Exception:
+                    pass
+
                 x11.XOpenDisplay.argtypes = [c_char_p]
                 x11.XOpenDisplay.restype = c_void_p
                 x11.XCloseDisplay.argtypes = [c_void_p]
@@ -193,6 +204,8 @@ class VNCEngine(BaseProtocolEngine):
                 start_t = time.time()
                 display = None
                 while time.time() - start_t < 10.0:
+                    if self.process and self.process.poll() is not None:
+                        break
                     if not display:
                         display = x11.XOpenDisplay(None)
                     if display:
