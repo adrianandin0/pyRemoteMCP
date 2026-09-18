@@ -42,8 +42,10 @@ class SerialEngine(BaseProtocolEngine):
         self._stop_event = threading.Event()
 
     def connect(self, on_output: Optional[Callable[[str], None]] = None,
+                on_close: Optional[Callable[[], None]] = None,
                 term_type: str = "xterm", width: int = 80, height: int = 24) -> bool:
         self.output_callback = on_output
+        self.close_callback = on_close
 
         bytesize = serial.EIGHTBITS
         if self.data_bits == 5:
@@ -122,3 +124,8 @@ class SerialEngine(BaseProtocolEngine):
             except Exception:
                 break
         self.is_connected = False
+        if getattr(self, "close_callback", None):
+            try:
+                self.close_callback()
+            except Exception:
+                pass

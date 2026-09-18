@@ -184,6 +184,7 @@ def row_to_html(row, columns: int, default_fg: str = '#d4d4d4', default_bg: str 
 class OutputBridge(QObject):
     """Bridge QObject to thread-safely emit signals from SSH background thread to Qt GUI thread."""
     output_received = Signal(str)
+    session_closed = Signal()
 
 
 class SSHPlainTextEdit(QPlainTextEdit):
@@ -390,16 +391,18 @@ class TerminalWidget(QWidget):
     Uses 'pyte' full screen terminal emulator for perfect vim, htop, nano, bash navigation,
     scrollback history, automatic file logging, TXT export, themes, and keyboard PTY forwarding.
     """
-    session_closed = Signal()
+    session_closed = Signal(bool)
 
     def __init__(self, node, settings_manager: Optional[SettingsManager] = None, parent=None):
         super().__init__(parent)
         self.node = node
         self.settings = settings_manager or SettingsManager()
         self.log_file = None
+        self._was_connected = False
 
         self.bridge = OutputBridge(self)
         self.bridge.output_received.connect(self.append_text)
+        self.bridge.session_closed.connect(self._on_engine_closed)
 
         # Setup pyte VT100/xterm screen emulator
         scroll_limit = self.settings.scrollback_lines if self.settings.scrollback_lines > 0 else 100000
@@ -595,14 +598,36 @@ class TerminalWidget(QWidget):
         self.screen.mode.add(pyte.modes.LNM)
         self._update_pty_dimensions()
         self.append_text(f"Connecting to {self.node.hostname}:{self.node.port} via {self.node.protocol}...\r\n")
+        self._was_connected = False
         connected = self.engine.connect(
             on_output=self.bridge.output_received.emit,
+            on_close=self.bridge.session_closed.emit,
             term_type="xterm",
             width=self.screen.columns,
             height=self.screen.lines
         )
         if not connected:
-            self.session_closed.emit()
+            self.session_closed.emit(False)
+        else:
+            self._was_connected = True
+
+    def _on_engine_closed(self):
+        """Handler called when engine background thread finishes."""
+        recent_text = self.text_edit.toPlainText()[-1000:].lower()
+        fatal_errors = [
+            "permission denied",
+            "connection refused",
+            "connection timed out",
+            "could not resolve hostname",
+            "host key verification failed",
+            "no route to host",
+            "name or service not known",
+            "authentication failed",
+            "access denied"
+        ]
+        has_error = any(err in recent_text for err in fatal_errors)
+        clean_exit = self._was_connected and not has_error
+        self.session_closed.emit(clean_exit)
 
     def append_text(self, text: str):
         """Feeds output into pyte VT100 screen emulator and updates QPlainTextEdit screen."""

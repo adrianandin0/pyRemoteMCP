@@ -203,8 +203,9 @@ class NativePTYSSHEngine(BaseProtocolEngine):
         self._read_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
-    def connect(self, on_output: Callable[[str], None], term_type: str = "xterm", width: int = 80, height: int = 24) -> bool:
+    def connect(self, on_output: Callable[[str], None], on_close: Optional[Callable[[], None]] = None, term_type: str = "xterm", width: int = 80, height: int = 24) -> bool:
         self.output_callback = on_output
+        self.close_callback = on_close
 
         sshpass = shutil.which("sshpass")
         cmd = []
@@ -373,6 +374,11 @@ class NativePTYSSHEngine(BaseProtocolEngine):
         self.is_connected = False
         if self.output_callback:
             self.output_callback("\r\n[SSH Session Closed]\r\n")
+        if getattr(self, "close_callback", None):
+            try:
+                self.close_callback()
+            except Exception:
+                pass
 
 
 
@@ -417,8 +423,9 @@ class PlinkSSHEngine(BaseProtocolEngine):
         self._read_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
-    def connect(self, on_output: Callable[[str], None], term_type: str = "xterm", width: int = 80, height: int = 24) -> bool:
+    def connect(self, on_output: Callable[[str], None], on_close: Optional[Callable[[], None]] = None, term_type: str = "xterm", width: int = 80, height: int = 24) -> bool:
         self.output_callback = on_output
+        self.close_callback = on_close
 
         plink = shutil.which("plink") or "/usr/bin/plink"
         cmd = [plink, "-ssh", "-t", "-no-antispoof"]
@@ -526,6 +533,11 @@ class PlinkSSHEngine(BaseProtocolEngine):
         self.is_connected = False
         if self.output_callback:
             self.output_callback("\r\n[SSH Session Closed]\r\n")
+        if getattr(self, "close_callback", None):
+            try:
+                self.close_callback()
+            except Exception:
+                pass
 
     def disconnect(self):
         self._stop_event.set()
@@ -572,8 +584,9 @@ class SSHEngine(BaseProtocolEngine):
         self._read_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
-    def connect(self, on_output: Callable[[str], None], term_type: str = "xterm", width: int = 80, height: int = 24) -> bool:
+    def connect(self, on_output: Callable[[str], None], on_close: Optional[Callable[[], None]] = None, term_type: str = "xterm", width: int = 80, height: int = 24) -> bool:
         self.output_callback = on_output
+        self.close_callback = on_close
 
         # 1. Detect actual SSH protocol version by connecting socket & inspecting server banner
         detected_version, banner = self._peek_server_banner()
@@ -586,12 +599,12 @@ class SSHEngine(BaseProtocolEngine):
                 self.plink_engine = PlinkSSHEngine(
                     hostname=self.hostname, port=self.port, username=self.username, password=self.password, protocol="SSH1"
                 )
-                return self.plink_engine.connect(on_output=on_output, term_type=term_type, width=width, height=height)
+                return self.plink_engine.connect(on_output=on_output, on_close=on_close, term_type=term_type, width=width, height=height)
             else:
                 self.ssh1_engine = PurePythonSSH1Engine(
                     hostname=self.hostname, port=self.port, username=self.username, password=self.password
                 )
-                return self.ssh1_engine.connect(on_output=on_output, term_type=term_type, width=width, height=height)
+                return self.ssh1_engine.connect(on_output=on_output, on_close=on_close, term_type=term_type, width=width, height=height)
 
         # 3. Server speaks SSH2 -> Use Native Linux SSH Engine first if available
         if shutil.which("ssh"):
@@ -603,7 +616,7 @@ class SSHEngine(BaseProtocolEngine):
                 key_filename=self.key_filename, key_passphrase=self.key_passphrase, protocol=self.protocol,
                 agent_forwarding=self.agent_forwarding, auto_reconnect=self.auto_reconnect
             )
-            return self.native_engine.connect(on_output=on_output, term_type=term_type, width=width, height=height)
+            return self.native_engine.connect(on_output=on_output, on_close=on_close, term_type=term_type, width=width, height=height)
 
         # Fallback to Paramiko Direct Transport if native ssh is not present
         if self.output_callback:
@@ -671,7 +684,7 @@ class SSHEngine(BaseProtocolEngine):
                 self.plink_engine = PlinkSSHEngine(
                     hostname=self.hostname, port=self.port, username=self.username, password=self.password, protocol=self.protocol
                 )
-                return self.plink_engine.connect(on_output=on_output, term_type=term_type, width=width, height=height)
+                return self.plink_engine.connect(on_output=on_output, on_close=on_close, term_type=term_type, width=width, height=height)
             else:
                 if self.output_callback:
                     self.output_callback(f"\r\n[SSH2 Error]: {str(e)}\r\n")
@@ -734,6 +747,11 @@ class SSHEngine(BaseProtocolEngine):
         self.is_connected = False
         if self.output_callback:
             self.output_callback("\r\n[SSH Session Closed]\r\n")
+        if getattr(self, "close_callback", None):
+            try:
+                self.close_callback()
+            except Exception:
+                pass
 
     def disconnect(self):
         self._stop_event.set()

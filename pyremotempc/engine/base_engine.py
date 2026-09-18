@@ -15,9 +15,11 @@ class BaseProtocolEngine(abc.ABC):
         self.password = password
         self.is_connected = False
         self.output_callback: Optional[Callable[[str], None]] = None
+        self.close_callback: Optional[Callable[[], None]] = None
 
     @abc.abstractmethod
     def connect(self, on_output: Optional[Callable[[str], None]] = None,
+                on_close: Optional[Callable[[], None]] = None,
                 term_type: str = "xterm", width: int = 80, height: int = 24) -> bool:
         """Establishes connection and starts session handling."""
         pass

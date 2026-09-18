@@ -278,10 +278,23 @@ class SessionTabWidget(QTabWidget):
         session_container.node = node
         session_container.lbl_info = lbl_info
 
+        # Connect session_closed to Smart Tab Close Handler
+        term.session_closed.connect(
+            lambda clean_exit, container=session_container: self._on_terminal_session_closed(container, clean_exit)
+        )
+
         idx = self.addTab(session_container, get_node_icon(node), format_tab_title(node))
         self.setCurrentIndex(idx)
         QTimer.singleShot(50, term.start_session)
         QTimer.singleShot(100, lambda: term.text_edit.setFocus())
+
+    def _on_terminal_session_closed(self, container_widget, clean_exit: bool = False):
+        """Smart Session Close Handler: Closes tab automatically on clean exit (e.g. 'exit' shell command), keeps tab open on connection error."""
+        if clean_exit:
+            idx = self.indexOf(container_widget)
+            if idx != -1:
+                self.removeTab(idx)
+                container_widget.deleteLater()
 
     def _toggle_sftp(self, sftp_panel: SFTPWidget):
         is_visible = sftp_panel.isVisible()

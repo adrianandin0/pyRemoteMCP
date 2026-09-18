@@ -37,8 +37,9 @@ class TelnetEngine(BaseProtocolEngine):
         self._stop_event = threading.Event()
         self.term_type = "xterm"
 
-    def connect(self, on_output: Callable[[str], None], term_type: str = "xterm", width: int = 80, height: int = 24) -> bool:
+    def connect(self, on_output: Callable[[str], None], on_close: Optional[Callable[[], None]] = None, term_type: str = "xterm", width: int = 80, height: int = 24) -> bool:
         self.output_callback = on_output
+        self.close_callback = on_close
         self.term_type = term_type
 
         try:
@@ -112,6 +113,11 @@ class TelnetEngine(BaseProtocolEngine):
         self.is_connected = False
         if self.output_callback:
             self.output_callback("\r\n[Telnet Session Closed]\r\n")
+        if getattr(self, "close_callback", None):
+            try:
+                self.close_callback()
+            except Exception:
+                pass
 
     def _process_telnet_data(self, buf: bytearray) -> str:
         """

@@ -55,8 +55,9 @@ class PurePythonSSH1Engine(BaseProtocolEngine):
         self._read_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
-    def connect(self, on_output: Callable[[str], None], term_type: str = "xterm", width: int = 80, height: int = 24) -> bool:
+    def connect(self, on_output: Callable[[str], None], on_close: Optional[Callable[[], None]] = None, term_type: str = "xterm", width: int = 80, height: int = 24) -> bool:
         self.output_callback = on_output
+        self.close_callback = on_close
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.sock.settimeout(10)
@@ -314,7 +315,7 @@ class SSH1Engine:
         self.key_filename = key_filename
         self.engine = PurePythonSSH1Engine(hostname, port, username, password)
 
-    def connect(self, on_output: Callable[[str], None], term_type: str = "xterm", width: int = 80, height: int = 24) -> bool:
+    def connect(self, on_output: Callable[[str], None], on_close: Optional[Callable[[], None]] = None, term_type: str = "xterm", width: int = 80, height: int = 24) -> bool:
         ssh1_bin = shutil.which("ssh1")
         if ssh1_bin:
             on_output(f"[Info] Found native SSH1 binary at {ssh1_bin}. Initiating SSH1 session...\r\n")
@@ -322,7 +323,7 @@ class SSH1Engine:
             on_output("[Notice] Native 'ssh1' binary not found on PATH. Using built-in Pure Python SSH1 engine.\r\n"
                       "[Tip] For legacy devices, install 'openssh-client-ssh1' for maximum binary compatibility.\r\n\r\n")
 
-        return self.engine.connect(on_output, term_type, width, height)
+        return self.engine.connect(on_output, on_close, term_type, width, height)
 
     def send_input(self, data: str):
         self.engine.send_input(data)
