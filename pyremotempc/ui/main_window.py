@@ -73,10 +73,7 @@ class MainWindow(QMainWindow):
         self.btn_toggle_sidebar.setFixedSize(10, 48)
         self.btn_toggle_sidebar.setToolTip("Toggle Connections Sidebar")
         self.btn_toggle_sidebar.setStyleSheet(
-            "QPushButton { background-color: #252526; color: #aaaaaa; border: 1px solid #3c3c3c; "
-            "border-left: none; border-top-right-radius: 3px; border-bottom-right-radius: 3px; "
-            "font-size: 8px; font-weight: bold; padding: 0px; } "
-            "QPushButton:hover { background-color: #007acc; color: #ffffff; border-color: #007acc; }"
+            "QPushButton { border-left: none; border-top-right-radius: 3px; border-bottom-right-radius: 3px; font-size: 8px; font-weight: bold; padding: 0px; }"
         )
         self.btn_toggle_sidebar.clicked.connect(self._toggle_sidebar)
 
@@ -128,11 +125,7 @@ class MainWindow(QMainWindow):
         self.edit_tree_search.setClearButtonEnabled(True)
         self.edit_tree_search.setFixedWidth(110)
         self.edit_tree_search.addAction(get_icon("search"), QLineEdit.ActionPosition.LeadingPosition)
-        self.edit_tree_search.setStyleSheet(
-            "QLineEdit { background-color: #1e1e1e; color: #d4d4d4; border: 1px solid #3c3c3c; "
-            "border-radius: 3px; padding: 2px 4px; font-size: 11px; } "
-            "QLineEdit:focus { border-color: #007acc; }"
-        )
+        self.edit_tree_search.setStyleSheet("QLineEdit { border-radius: 3px; padding: 2px 4px; font-size: 11px; }")
 
         conn_header_layout.addWidget(self.edit_tree_search, 0, Qt.AlignmentFlag.AlignVCenter)
         conn_vbox.addWidget(conn_header_widget)
@@ -164,10 +157,7 @@ class MainWindow(QMainWindow):
         self.btn_toggle_prop = QPushButton("▼", prop_header_widget)
         self.btn_toggle_prop.setFixedSize(20, 20)
         self.btn_toggle_prop.setToolTip(tr("properties", self.settings.language))
-        self.btn_toggle_prop.setStyleSheet(
-            "QPushButton { background-color: transparent; color: #aaaaaa; border: none; font-size: 11px; font-weight: bold; } "
-            "QPushButton:hover { background-color: #3c3c3c; color: #ffffff; border-radius: 3px; }"
-        )
+        self.btn_toggle_prop.setStyleSheet("QPushButton { border: none; font-size: 11px; font-weight: bold; padding: 0px; }")
         self.btn_toggle_prop.clicked.connect(self._toggle_properties_panel)
         prop_header_layout.addWidget(self.btn_toggle_prop, 0, Qt.AlignmentFlag.AlignVCenter)
 

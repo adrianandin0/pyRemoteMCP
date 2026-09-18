@@ -41,12 +41,9 @@ class SettingsManager:
                 with open(self.settings_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     self.settings.update(data)
-                    self.settings["language"] = "en"
             except Exception:
                 self.settings = dict(DEFAULT_SETTINGS)
-            self.settings["language"] = "en"
         else:
-            self.settings["language"] = "en"
             self.save()
 
     def save(self):

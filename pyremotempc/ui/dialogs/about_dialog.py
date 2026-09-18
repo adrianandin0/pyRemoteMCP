@@ -1,5 +1,5 @@
 import os
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
 from PySide6.QtCore import Qt
 from pyremotempc.ui.icon_manager import get_icon
 from pyremotempc.config.version import get_version
@@ -7,89 +7,111 @@ from pyremotempc.config.version import get_version
 
 class AboutDialog(QDialog):
     """
-    About pyRemoteMPC dialog displaying version, protocol features, author contacts, and graphic credits in English.
+    Elegant About pyRemoteMPC dialog. Fully theme-aware — no hardcoded colors.
+    Displays version, supported protocols (SSH, SFTP, FTP, SCP, RDP, VNC, Telnet, Serial),
+    author contacts, and graphic credits.
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("About pyRemoteMPC")
-        self.setFixedSize(540, 480)
+        self.setFixedSize(620, 580)
         self._setup_ui()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 16)
+        layout.setSpacing(14)
 
-        # Top Header: Icon + Title & Acronym Explanation
-        header_layout = QHBoxLayout()
-        header_layout.setSpacing(16)
+        # ── Top Header ────────────────────────────────────────────────────
+        header_frame = QFrame(self)
+        header_frame.setObjectName("about_card")
+        header_frame.setStyleSheet(
+            "QFrame#about_card { border: 1px solid rgba(128,128,128,0.3); border-radius: 8px; }"
+        )
 
-        lbl_icon = QLabel(self)
-        lbl_icon.setPixmap(get_icon("pyremotempc").pixmap(64, 64))
+        header_layout = QHBoxLayout(header_frame)
+        header_layout.setContentsMargins(16, 14, 16, 14)
+        header_layout.setSpacing(14)
+
+        lbl_icon = QLabel(header_frame)
+        lbl_icon.setPixmap(get_icon("pyremotempc").pixmap(56, 56))
         header_layout.addWidget(lbl_icon, 0, Qt.AlignmentFlag.AlignTop)
 
-        lbl_title = QLabel(self)
-        lbl_title.setTextFormat(Qt.TextFormat.RichText)
-        lbl_title.setOpenExternalLinks(True)
+        title_vbox = QVBoxLayout()
+        title_vbox.setSpacing(4)
+
+        lbl_title = QLabel("<b>pyRemoteMPC</b>", header_frame)
+        lbl_title.setStyleSheet("font-size: 20px; font-weight: bold;")
+        title_vbox.addWidget(lbl_title)
+
+        lbl_sub = QLabel(
+            "<b>py</b>thon <b>Remote</b> <b>M</b>ulti-<b>P</b>rotocol <b>C</b>onnections",
+            header_frame,
+        )
+        lbl_sub.setStyleSheet("font-size: 12px;")
+        title_vbox.addWidget(lbl_sub)
 
         version_str = get_version()
+        lbl_version = QLabel(f"<b>Version:</b> {version_str}", header_frame)
+        lbl_version.setStyleSheet("font-size: 12px; font-weight: bold;")
+        title_vbox.addWidget(lbl_version)
 
-        title_html = f"""
-        <div style="font-size: 11px; font-weight: normal; color: #ffffff;">
-            <p style="margin: 0; font-size: 12px; line-height: 1.4;">
-                <b>py</b>Remote<b>MPC</b> ( <b>py</b>thon <b>Remote</b> <b>M</b>ulti-<b>P</b>rotocol <b>C</b>onnections )
-            </p>
-            <p style="margin: 4px 0 0 0; color: #3b82f6; font-size: 11px;">
-                Version: <b>{version_str}</b>
-            </p>
-        </div>
-        """
-        lbl_title.setText(title_html)
-        header_layout.addWidget(lbl_title, 1)
+        header_layout.addLayout(title_vbox)
+        header_layout.addStretch()
 
-        layout.addLayout(header_layout)
+        layout.addWidget(header_frame)
 
-        # Description and Complete Supported Connection Types List
-        lbl_body = QLabel(self)
-        lbl_body.setWordWrap(True)
-        lbl_body.setTextFormat(Qt.TextFormat.RichText)
-        lbl_body.setOpenExternalLinks(True)
+        # ── Body ──────────────────────────────────────────────────────────
+        body_frame = QFrame(self)
+        body_frame.setObjectName("about_card")
+        body_frame.setStyleSheet(
+            "QFrame#about_card { border: 1px solid rgba(128,128,128,0.3); border-radius: 8px; }"
+        )
+
+        body_layout = QVBoxLayout(body_frame)
+        body_layout.setContentsMargins(18, 16, 18, 16)
+        body_layout.setSpacing(0)
 
         body_html = """
-        <div style="font-size: 11px; font-weight: normal; color: #cccccc; line-height: 1.4;">
-            <p style="margin-top: 4px;">
-                Native Python Multi-Protocol Remote Connections Manager for Linux.
+        <div style="font-size: 11px; font-weight: normal; line-height: 1.6;">
+            <p style="margin-top: 0; margin-bottom: 10px; font-size: 13px;">
+                <b>Native Python Multi-Protocol Remote Connections Manager for GNU/Linux.</b>
             </p>
-            <p style="margin-bottom: 4px;"><b>Supported Connection Protocols:</b></p>
-            <ul style="margin-top: 2px; margin-bottom: 10px; padding-left: 20px;">
-                <li><b>SSH2</b> &mdash; Interactive secure terminal sessions.</li>
-                <li><b>SSH1</b> &mdash; Compatibility support for legacy devices and older network hardware.</li>
-                <li><b>SFTP / FTP</b> &mdash; Integrated tabbed file manager per session.</li>
-                <li><b>RDP</b> &mdash; Remote Desktop Protocol with native container window embedding.</li>
-                <li><b>VNC</b> &mdash; Virtual Network Computing (UltraVNC / MSLogon / Standard VNC auth).</li>
-                <li><b>TELNET</b> &mdash; Telnet terminal access.</li>
-                <li><b>SERIAL</b> &mdash; Direct serial port communication (TTY / COM) with active port auto-detection.</li>
+            <p style="margin-bottom: 4px; font-weight: bold; font-size: 12px;">Supported Protocols &amp; Features:</p>
+            <ul style="margin-top: 2px; margin-bottom: 10px; padding-left: 18px;">
+                <li style="margin-bottom: 4px;"><b>SSH2 &amp; SSH1</b> &mdash; Terminal sessions (VT100/xterm), key support, legacy ciphers &amp; KEX.</li>
+                <li style="margin-bottom: 4px;"><b>SFTP, FTP &amp; SCP</b> &mdash; Tab-integrated dual-pane file manager with drag-and-drop, permissions editor, and background file transfers.</li>
+                <li style="margin-bottom: 4px;"><b>RDP</b> &mdash; Remote Desktop Protocol with native container window embedding (FreeRDP), clipboard sharing, and shared drive mapping.</li>
+                <li style="margin-bottom: 4px;"><b>VNC</b> &mdash; Remote desktop support (UltraVNC MSLogon / Standard VNC authentication).</li>
+                <li style="margin-bottom: 4px;"><b>TELNET &amp; SERIAL</b> &mdash; Telnet and TTY/COM serial ports with auto-detection and baud rate selection.</li>
+                <li style="margin-bottom: 4px;"><b>Multi-Format Import / Export</b> &mdash; mRemoteNG XML, SecureCRT XML, Asbr&uacute; YAML, and Microsoft RDCMan (.rdg).</li>
+                <li style="margin-bottom: 4px;"><b>Security Layer</b> &mdash; Master Password, PBKDF2-HMAC-SHA256, AES-256-GCM, startup auth, and Read-Only mode.</li>
             </ul>
-            <hr style="border: none; border-top: 1px solid #3c3c3c; margin: 8px 0;" />
-            <p style="margin: 3px 0;"><b>Author:</b> Adrián Andino</p>
-            <p style="margin: 3px 0;"><b>Contact:</b> <a style="color: #3b82f6; text-decoration: underline;" href="mailto:adrianandino@pm.me">adrianandino@pm.me</a></p>
-            <p style="margin: 3px 0;"><b>X:</b> <a style="color: #3b82f6; text-decoration: underline;" href="https://x.com/adrian_and_ino">@adrian_and_ino</a></p>
-            <p style="margin: 3px 0;"><b>GitHub:</b> <a style="color: #3b82f6; text-decoration: underline;" href="https://github.com/adrianandin0/pyRemoteMPC">https://github.com/adrianandin0/pyRemoteMPC</a></p>
-            <hr style="border: none; border-top: 1px solid #3c3c3c; margin: 8px 0;" />
-            <p style="margin: 3px 0; font-size: 10px; color: #888888;">
-                Icons and graphical assets from <a style="color: #888888; text-decoration: underline;" href="https://www.flaticon.com/">Flaticon</a> by <a style="color: #888888; text-decoration: underline;" href="https://www.flaticon.com/authors/magnific">magnific</a>.
+            <hr style="border: none; border-top: 1px solid rgba(128,128,128,0.3); margin: 8px 0;" />
+            <p style="margin: 4px 0;"><b>Author:</b> Adri&aacute;n Andino</p>
+            <p style="margin: 4px 0;"><b>Contact:</b> adrianandino@pm.me</p>
+            <p style="margin: 4px 0;"><b>X:</b> @adrian_and_ino</p>
+            <p style="margin: 4px 0;"><b>GitHub:</b> https://github.com/adrianandin0/pyRemoteMPC</p>
+            <hr style="border: none; border-top: 1px solid rgba(128,128,128,0.3); margin: 8px 0;" />
+            <p style="margin: 2px 0; font-size: 10px; opacity: 0.7;">
+                Icons and graphical assets from Flaticon by magnific.
             </p>
         </div>
         """
+        lbl_body = QLabel(body_frame)
+        lbl_body.setWordWrap(True)
+        lbl_body.setTextFormat(Qt.TextFormat.RichText)
         lbl_body.setText(body_html)
-        layout.addWidget(lbl_body, 1)
+        body_layout.addWidget(lbl_body)
 
-        # OK / Close Button
+        layout.addWidget(body_frame)
+
+        # ── Close Button ──────────────────────────────────────────────────
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
-        btn_close = QPushButton("Close", self)
-        btn_close.setFixedWidth(80)
+        btn_close = QPushButton("Close / Cerrar", self)
+        btn_close.setFixedWidth(130)
         btn_close.clicked.connect(self.accept)
         btn_layout.addWidget(btn_close)
 

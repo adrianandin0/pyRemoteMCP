@@ -110,9 +110,9 @@ class SessionTabWidget(QTabWidget):
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         lbl_title = QLabel(tr("welcome_title", lang))
-        lbl_title.setStyleSheet("font-size: 11px; font-weight: normal; color: #3b82f6;")
+        lbl_title.setStyleSheet("font-size: 13px; font-weight: bold;")
         lbl_sub = QLabel(tr("welcome_sub", lang))
-        lbl_sub.setStyleSheet("font-size: 11px; font-weight: normal; color: #6b7280;")
+        lbl_sub.setStyleSheet("font-size: 11px; font-weight: normal;")
 
 
         layout.addWidget(lbl_title, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -150,12 +150,12 @@ class SessionTabWidget(QTabWidget):
 
         # Action Bar
         action_bar = QWidget(sftp_container)
-        action_bar.setStyleSheet("background-color: #252526; border-bottom: 1px solid #3c3c3c;")
+        action_bar.setObjectName("tab_action_bar")
         act_layout = QHBoxLayout(action_bar)
         act_layout.setContentsMargins(6, 2, 6, 2)
 
         lbl_info = QLabel(f"{format_tab_title(node)} ({node.hostname}:{node.port})", action_bar)
-        lbl_info.setStyleSheet("color: #cccccc; font-size: 11px; font-weight: normal;")
+        lbl_info.setStyleSheet("font-size: 11px; font-weight: normal;")
         act_layout.addWidget(lbl_info)
         act_layout.addStretch()
 
@@ -187,12 +187,12 @@ class SessionTabWidget(QTabWidget):
 
         # Per-tab action bar
         action_bar = QWidget(session_container)
-        action_bar.setStyleSheet("background-color: #252526; border-bottom: 1px solid #3c3c3c;")
+        action_bar.setObjectName("tab_action_bar")
         act_layout = QHBoxLayout(action_bar)
         act_layout.setContentsMargins(6, 2, 6, 2)
 
         lbl_info = QLabel(f"{format_tab_title(node)} ({node.hostname}:{node.port})", action_bar)
-        lbl_info.setStyleSheet("color: #cccccc; font-size: 11px; font-weight: normal;")
+        lbl_info.setStyleSheet("font-size: 11px; font-weight: normal;")
         act_layout.addWidget(lbl_info)
 
         act_layout.addStretch()
@@ -252,12 +252,12 @@ class SessionTabWidget(QTabWidget):
 
         # Top Control Bar
         action_bar = QWidget(rdp_container)
-        action_bar.setStyleSheet("background-color: #252526; border-bottom: 1px solid #3c3c3c;")
+        action_bar.setObjectName("tab_action_bar")
         act_layout = QHBoxLayout(action_bar)
         act_layout.setContentsMargins(6, 2, 6, 2)
 
         lbl_info = QLabel(f"{format_tab_title(node)} ({node.hostname}:{node.port})", action_bar)
-        lbl_info.setStyleSheet("color: #cccccc; font-size: 11px; font-weight: normal;")
+        lbl_info.setStyleSheet("font-size: 11px; font-weight: normal;")
         act_layout.addWidget(lbl_info)
         act_layout.addStretch()
 
@@ -281,7 +281,7 @@ class SessionTabWidget(QTabWidget):
         embed_layout = QVBoxLayout(embed_widget)
         lbl_status = QLabel(f"Launching RDP to {node.hostname}:{node.port}...", embed_widget)
         lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_status.setStyleSheet("font-size: 11px; font-weight: normal; color: #3b82f6; background: #1e1e1e;")
+        lbl_status.setStyleSheet("font-size: 11px; font-weight: normal;")
 
         embed_layout.addWidget(lbl_status)
         splitter.addWidget(embed_widget)
@@ -294,7 +294,8 @@ class SessionTabWidget(QTabWidget):
 
         txt_rdp_log = QPlainTextEdit(group_log)
         txt_rdp_log.setReadOnly(True)
-        txt_rdp_log.setStyleSheet("background-color: #111111; color: #00ff66; font-family: Monospace; font-size: 11px;")
+        txt_rdp_log.setObjectName("log_console")
+        txt_rdp_log.setStyleSheet("QPlainTextEdit#log_console { font-family: Monospace; font-size: 11px; }")
         log_vbox.addWidget(txt_rdp_log)
         splitter.addWidget(group_log)
         
@@ -376,12 +377,12 @@ class SessionTabWidget(QTabWidget):
 
         # Per-tab action bar
         action_bar = QWidget(vnc_container)
-        action_bar.setStyleSheet("background-color: #252526; border-bottom: 1px solid #3c3c3c;")
+        action_bar.setObjectName("tab_action_bar")
         act_layout = QHBoxLayout(action_bar)
         act_layout.setContentsMargins(6, 2, 6, 2)
 
         lbl_info = QLabel(f"{format_tab_title(node)} ({node.hostname}:{node.port})", action_bar)
-        lbl_info.setStyleSheet("color: #cccccc; font-size: 11px; font-weight: normal;")
+        lbl_info.setStyleSheet("font-size: 11px; font-weight: normal;")
         act_layout.addWidget(lbl_info)
 
         act_layout.addStretch()
@@ -408,7 +409,7 @@ class SessionTabWidget(QTabWidget):
         embed_layout = QVBoxLayout(embed_widget)
         lbl_status = QLabel(f"Launching System VNC Client to {node.hostname}:{node.port}...", embed_widget)
         lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_status.setStyleSheet("font-size: 11px; font-weight: normal; color: #3b82f6; background: #1e1e1e;")
+        lbl_status.setStyleSheet("font-size: 11px; font-weight: normal;")
         embed_layout.addWidget(lbl_status)
         splitter.addWidget(embed_widget)
         embed_widget.setVisible(False)
@@ -420,7 +421,8 @@ class SessionTabWidget(QTabWidget):
 
         txt_vnc_log = QPlainTextEdit(group_log)
         txt_vnc_log.setReadOnly(True)
-        txt_vnc_log.setStyleSheet("background-color: #111111; color: #ffb000; font-family: Monospace; font-size: 11px;")
+        txt_vnc_log.setObjectName("log_console")
+        txt_vnc_log.setStyleSheet("QPlainTextEdit#log_console { font-family: Monospace; font-size: 11px; }")
         log_vbox.addWidget(txt_vnc_log)
         splitter.addWidget(group_log)
 

@@ -1,82 +1,52 @@
 """
 Internationalization (i18n) Module for pyRemoteMPC.
-Configured to English UI mode.
+Loads translation strings from JSON files stored in pyremotempc/config/locales/.
+Supports English (en) and Spanish (es).
 """
 
-ENGLISH_STRINGS = {
-    "app_title": "pyRemoteMPC - Linux Connection Manager",
-    "connections": "Connections",
-    "properties": "Properties",
-    "connections_and_properties": "Connections and Properties",
-    "file": "File",
-    "view": "View",
-    "settings": "Settings",
-    "help": "Help",
-    "preferences": "Preferences and Options...",
-    "set_master_pass": "Set Master Password...",
-    "about": "About pyRemoteMPC",
-    "new_connection": "New Connection",
-    "new_folder": "New Folder",
-    "import_xml": "Import connections...",
-    "export_xml": "Export connections...",
-    "exit": "Exit",
-    "quick_connect": "Quick Connect",
-    "proto": "Proto",
-    "port": "Port",
-    "user": "User",
-    "pass": "Password",
-    "connect": "Connect",
-    "save_conn": "Save Connection",
-    "sftp_manager": "SFTP File Manager",
-    "export_txt": "Export Log",
-    "local_machine": "Local Machine (Linux)",
-    "remote_host": "Remote Host",
-    "upload": "Upload ➔",
-    "download": "⬅ Download",
-    "refresh": "Refresh",
-    "connect_sftp": "Connect SFTP",
-    "up": "⬆ Up",
-    "col_name": "Name",
-    "col_size": "Size",
-    "col_perms": "Permissions",
-    "language": "Language",
-    "theme": "UI Theme",
-    "font_family": "Console Font Family",
-    "font_size": "Font Size (pt)",
-    "enable_logging": "Enable Automatic Session Logging",
-    "log_dir": "Log Output Directory",
-    "scrollback": "Console History Lines",
-    "infinite_lines": "0 (No Limit)",
-    "master_key": "Master Key and Security Layer",
-    "current_pass": "Current Master Password",
-    "new_pass": "New Master Password",
-    "confirm_pass": "Confirm New Password",
-    "update_key": "Update Master Encryption Key",
-    "save_apply": "Save and Apply",
-    "cancel": "Cancel",
-    "welcome_title": "Welcome to pyRemoteMPC",
-    "welcome_sub": "Native Python Multi-Protocol Connections Manager for Linux (KDE, GNOME, XFCE) and Cross-Platform",
-    "appearance": "Appearance and Language",
-    "logging_group": "SSH Session Logging",
-    "scrollback_group": "Console Line Buffer (Scrollback)",
-    "sftp_log_btn": "📜 Diagnostic Log",
-    "sftp_log_title": "SFTP Diagnostic Log",
-    "rdp_log_title": "RDP Diagnostic Log",
-    "reconnect_rdp": "Reconnect RDP",
-    "show_hidden_files": "Show Hidden Files",
-    "domain": "Domain",
-    "confirm_close_tab_title": "Confirm Close",
-    "confirm_close_tab_msg": "Are you sure you want to close active session '{name}'?",
-    "confirm_exit_app_title": "Confirm Exit",
-    "confirm_exit_app_msg": "There are {count} active remote session(s) open.\nAre you sure you want to exit pyRemoteMPC?",
-}
+import os
+import json
+from typing import Dict
 
-TRANSLATIONS = {
-    "es": ENGLISH_STRINGS,
-    "en": ENGLISH_STRINGS,
-}
+LOCALES_DIR = os.path.join(os.path.dirname(__file__), "locales")
+_translations_cache: Dict[str, Dict[str, str]] = {}
+
+
+def load_locale(lang: str) -> Dict[str, str]:
+    lang_code = (lang or "en").strip().lower()
+    if lang_code in _translations_cache:
+        return _translations_cache[lang_code]
+
+    json_path = os.path.join(LOCALES_DIR, f"{lang_code}.json")
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                _translations_cache[lang_code] = data
+                return data
+        except Exception as e:
+            print(f"Failed to load translation file {json_path}: {e}")
+
+    # Fallback to English if file missing
+    if lang_code != "en":
+        return load_locale("en")
+
+    return {}
 
 
 def tr(key: str, lang: str = "en") -> str:
-    """Returns translated string for key (English mode active)."""
-    return ENGLISH_STRINGS.get(key, key)
+    """
+    Returns translated string for given key and language code.
+    Falls back to English if translation is missing.
+    """
+    locale_dict = load_locale(lang)
+    if key in locale_dict:
+        return locale_dict[key]
+
+    # Fallback to English
+    if lang != "en":
+        en_dict = load_locale("en")
+        if key in en_dict:
+            return en_dict[key]
+
+    return key

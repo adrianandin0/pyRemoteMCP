@@ -4,18 +4,33 @@ from PySide6.QtWidgets import (
     QLineEdit, QSpinBox, QCheckBox, QPushButton, QComboBox, QFileDialog,
     QMessageBox, QFormLayout, QGroupBox
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices
 from pyremotempc.config.settings import SettingsManager
 from pyremotempc.config.i18n import tr
 from pyremotempc.crypto.master_key_manager import MasterKeyManager
 from pyremotempc.ui.icon_manager import get_icon
 
 
+def open_directory_in_file_manager(path: str, parent=None):
+    """Opens directory path in OS native file manager."""
+    expanded = os.path.expanduser(path.strip())
+    if not os.path.exists(expanded):
+        try:
+            os.makedirs(expanded, exist_ok=True)
+        except Exception:
+            QMessageBox.warning(parent, "Error", f"Directory does not exist and could not be created:\n{expanded}")
+            return
+    QDesktopServices.openUrl(QUrl.fromLocalFile(expanded))
+
+
 class PreferencesDialog(QDialog):
     """
     Preferences and Options Dialog for pyRemoteMPC.
-    Allows configuring language, session logs, terminal scrollback,
-    RDP shared folders, and Security (Master Password & Startup Authentication).
+    Tab 1: General (Language, Console Color, Font, Size, Theme, Default Directory)
+    Tab 2: Terminal and Logs (Logs Directory, Enable Logging, Max Lines)
+    Tab 3: Remote Desktop (RDP Clipboard, Drive Redirection Info)
+    Tab 4: Security (Startup Auth, Change Master Key, Reset Master Key, Config Directory)
     """
 
     def __init__(self, settings_manager: SettingsManager, initial_tab: int = 0, parent=None):
@@ -25,8 +40,8 @@ class PreferencesDialog(QDialog):
         self.master_key_mgr = MasterKeyManager(self.settings)
 
         self.setWindowTitle(f"{tr('preferences', self.lang)} - pyRemoteMPC")
-        self.setMinimumSize(680, 520)
-        self.resize(680, 520)
+        self.setMinimumSize(720, 540)
+        self.resize(720, 540)
 
         main_layout = QVBoxLayout(self)
 
@@ -62,20 +77,23 @@ class PreferencesDialog(QDialog):
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        group = QGroupBox(tr("appearance", self.lang), tab)
+        group = QGroupBox("User Preferences & Appearance", tab)
         form = QFormLayout(group)
 
         # Language Selector
         self.combo_lang = QComboBox(group)
         self.combo_lang.addItem("English", "en")
-        self.combo_lang.setCurrentIndex(0)
+        self.combo_lang.addItem("Español", "es")
+        current_lang = self.settings.language
+        idx = self.combo_lang.findData(current_lang)
+        self.combo_lang.setCurrentIndex(idx if idx >= 0 else 0)
         form.addRow(tr("language", self.lang) + ":", self.combo_lang)
 
-        # Theme Selector
-        self.combo_theme = QComboBox(group)
-        self.combo_theme.addItems(["Dark", "Classic Green", "Amber", "Light"])
-        self.combo_theme.setCurrentText(self.settings.theme)
-        form.addRow(tr("theme", self.lang) + ":", self.combo_theme)
+        # Console Color Theme Selector
+        self.combo_console = QComboBox(group)
+        self.combo_console.addItems(["Classic Dark", "Green / Matrix", "Amber", "Light"])
+        self.combo_console.setCurrentText(self.settings.get("console_theme", "Classic Dark"))
+        form.addRow("Console Color:", self.combo_console)
 
         # Font Family Selector
         self.combo_font = QComboBox(group)
@@ -89,16 +107,44 @@ class PreferencesDialog(QDialog):
         self.spin_font_size.setValue(self.settings.font_size)
         form.addRow(tr("font_size", self.lang) + ":", self.spin_font_size)
 
+        # Application Theme Selector (Dark / Light / Ocean / Forest)
+        self.combo_theme = QComboBox(group)
+        self.combo_theme.addItems(["Dark", "Light", "Ocean", "Forest"])
+        current_theme = self.settings.theme if self.settings.theme in ("Dark", "Light", "Ocean", "Forest") else "Dark"
+        self.combo_theme.setCurrentText(current_theme)
+        form.addRow("App Theme:", self.combo_theme)
+
+        # Default Directory (SFTP/SCP & RDP Mapping)
+        dir_layout = QHBoxLayout()
+        default_dir_val = self.settings.get("default_directory", self.settings.get("rdp_shared_folder", os.path.expanduser("~/RDP_Shared")))
+        self.edit_default_dir = QLineEdit(group)
+        self.edit_default_dir.setText(default_dir_val)
+        dir_layout.addWidget(self.edit_default_dir)
+
+        btn_browse_def = QPushButton(group)
+        btn_browse_def.setIcon(get_icon("browse"))
+        btn_browse_def.setToolTip("Browse Directory...")
+        btn_browse_def.clicked.connect(self._browse_default_dir)
+        dir_layout.addWidget(btn_browse_def)
+
+        btn_open_def = QPushButton(group)
+        btn_open_def.setIcon(get_icon("folder"))
+        btn_open_def.setToolTip("Open Directory in File Manager")
+        btn_open_def.clicked.connect(lambda: open_directory_in_file_manager(self.edit_default_dir.text(), self))
+        dir_layout.addWidget(btn_open_def)
+
+        form.addRow("Default Directory (SFTP/SCP & RDP):", dir_layout)
+
         layout.addWidget(group)
         layout.addStretch()
-        self.tab_widget.addTab(tab, get_icon("settings"), tr("appearance", self.lang))
+        self.tab_widget.addTab(tab, get_icon("settings"), "General")
 
     def _init_terminal_logging_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
         # Logging Group
-        group_log = QGroupBox(tr("logging_group", self.lang), tab)
+        group_log = QGroupBox("Logging & Session Output", tab)
         form_log = QFormLayout(group_log)
 
         self.chk_logging = QCheckBox(tr("enable_logging", self.lang), group_log)
@@ -110,16 +156,23 @@ class PreferencesDialog(QDialog):
         self.edit_log_dir.setText(self.settings.get("log_directory", "~/.config/pyremotempc/logs"))
         dir_layout.addWidget(self.edit_log_dir)
 
-        btn_browse = QPushButton("Browse...", group_log)
-        btn_browse.setIcon(get_icon("folder"))
+        btn_browse = QPushButton(group_log)
+        btn_browse.setIcon(get_icon("browse"))
+        btn_browse.setToolTip("Browse Logs Directory...")
         btn_browse.clicked.connect(self._browse_log_dir)
         dir_layout.addWidget(btn_browse)
 
-        form_log.addRow(tr("log_dir", self.lang) + ":", dir_layout)
+        btn_open = QPushButton(group_log)
+        btn_open.setIcon(get_icon("folder"))
+        btn_open.setToolTip("Open Logs Directory in File Manager")
+        btn_open.clicked.connect(lambda: open_directory_in_file_manager(self.edit_log_dir.text(), self))
+        dir_layout.addWidget(btn_open)
+
+        form_log.addRow("Logs Directory:", dir_layout)
         layout.addWidget(group_log)
 
         # Terminal Scrollback Group
-        group_term = QGroupBox(tr("scrollback_group", self.lang), tab)
+        group_term = QGroupBox("Terminal Scrollback Buffer", tab)
         form_term = QFormLayout(group_term)
 
         self.spin_scrollback = QSpinBox(group_term)
@@ -127,7 +180,7 @@ class PreferencesDialog(QDialog):
         self.spin_scrollback.setSingleStep(1000)
         self.spin_scrollback.setValue(self.settings.scrollback_lines)
         self.spin_scrollback.setSpecialValueText(tr("infinite_lines", self.lang))
-        form_term.addRow(tr("scrollback", self.lang) + ":", self.spin_scrollback)
+        form_term.addRow("Max Lines:", self.spin_scrollback)
 
         lbl_info = QLabel("Note: Set to 0 for no limit on console scrollback lines.", group_term)
         lbl_info.setWordWrap(True)
@@ -137,6 +190,44 @@ class PreferencesDialog(QDialog):
         layout.addWidget(group_term)
         layout.addStretch()
         self.tab_widget.addTab(tab, get_icon("log"), "Terminal and Logs")
+
+    def _init_rdp_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        group_rdp = QGroupBox("Remote Desktop (RDP) Integration", tab)
+        vbox_rdp = QVBoxLayout(group_rdp)
+
+        form_rdp = QFormLayout()
+
+        self.chk_rdp_clipboard = QCheckBox("Enable Clipboard Sharing (+clipboard)", group_rdp)
+        self.chk_rdp_clipboard.setChecked(self.settings.rdp_enable_clipboard)
+        form_rdp.addRow(self.chk_rdp_clipboard)
+
+        self.chk_rdp_drive = QCheckBox("Map Local Shared Directory as Network Drive (/drive:Shared)", group_rdp)
+        self.chk_rdp_drive.setChecked(self.settings.rdp_enable_drive_redirection)
+        form_rdp.addRow(self.chk_rdp_drive)
+
+        vbox_rdp.addLayout(form_rdp)
+
+        lbl_info = QLabel(group_rdp)
+        lbl_info.setWordWrap(True)
+        lbl_info.setTextFormat(Qt.TextFormat.RichText)
+        lbl_info.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        lbl_info.setStyleSheet(
+            "QLabel { color: #3b82f6; font-size: 11px; font-weight: normal; "
+            "background-color: #1e1e1e; border: 1px solid #3c3c3c; border-radius: 4px; padding: 10px; margin-top: 10px; text-align: left; }"
+        )
+        lbl_info.setText(
+            "<b>Shared Drive Mapping:</b> Uses the Default Directory configured in the General tab mapped as a network drive "
+            "('<i>\\\\tsclient\\Shared</i>' or drive letter) inside all remote Windows RDP sessions.<br><br>"
+            "<b>Clipboard:</b> Allows seamless copy and paste of text and data between Linux and RDP servers."
+        )
+        vbox_rdp.addWidget(lbl_info)
+
+        layout.addWidget(group_rdp)
+        layout.addStretch()
+        self.tab_widget.addTab(tab, get_icon("windows"), "Remote Desktop")
 
     def _init_security_tab(self):
         tab = QWidget()
@@ -156,7 +247,7 @@ class PreferencesDialog(QDialog):
         vbox_startup.addWidget(lbl_startup_info)
         layout.addWidget(group_startup)
 
-        # Master Password Change Group
+        # Master Password Change & Reset Group
         group_sec = QGroupBox("Master Password & Encryption Key", tab)
         form_sec = QFormLayout(group_sec)
 
@@ -181,63 +272,54 @@ class PreferencesDialog(QDialog):
         self.edit_confirm_pass.setEchoMode(QLineEdit.EchoMode.Password)
         form_sec.addRow(tr("confirm_pass", self.lang) + ":", self.edit_confirm_pass)
 
+        btn_sec_layout = QHBoxLayout()
         btn_change_key = QPushButton(tr("update_key", self.lang), group_sec)
         btn_change_key.setIcon(get_icon("security"))
         btn_change_key.clicked.connect(self._change_master_key)
-        form_sec.addRow(btn_change_key)
+        btn_sec_layout.addWidget(btn_change_key)
 
+        btn_reset_key = QPushButton("Reset to default master password", group_sec)
+        btn_reset_key.setIcon(get_icon("refresh"))
+        btn_reset_key.clicked.connect(self._reset_default_master_key)
+        btn_sec_layout.addWidget(btn_reset_key)
+
+        form_sec.addRow(btn_sec_layout)
         layout.addWidget(group_sec)
+
+        # Config Directory Group
+        group_cfg = QGroupBox("Application Configuration Storage", tab)
+        form_cfg = QFormLayout(group_cfg)
+
+        cfg_dir_layout = QHBoxLayout()
+        default_cfg_dir = os.path.expanduser("~/.config/pyremotempc")
+        self.edit_config_dir = QLineEdit(group_cfg)
+        self.edit_config_dir.setText(self.settings.get("config_directory", default_cfg_dir))
+        cfg_dir_layout.addWidget(self.edit_config_dir)
+
+        btn_browse_cfg = QPushButton(group_cfg)
+        btn_browse_cfg.setIcon(get_icon("browse"))
+        btn_browse_cfg.setToolTip("Browse Config Directory...")
+        btn_browse_cfg.clicked.connect(self._browse_config_dir)
+        cfg_dir_layout.addWidget(btn_browse_cfg)
+
+        btn_open_cfg = QPushButton(group_cfg)
+        btn_open_cfg.setIcon(get_icon("folder"))
+        btn_open_cfg.setToolTip("Open Config Directory in File Manager")
+        btn_open_cfg.clicked.connect(lambda: open_directory_in_file_manager(self.edit_config_dir.text(), self))
+        cfg_dir_layout.addWidget(btn_open_cfg)
+
+        form_cfg.addRow("Config Directory:", cfg_dir_layout)
+        layout.addWidget(group_cfg)
+
         layout.addStretch()
         self.tab_widget.addTab(tab, get_icon("security"), "Security")
 
-    def _init_rdp_tab(self):
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-
-        group_rdp = QGroupBox("RDP and Remote Desktop Settings", tab)
-        vbox_rdp = QVBoxLayout(group_rdp)
-
-        form_rdp = QFormLayout()
-
-        self.chk_rdp_clipboard = QCheckBox("Enable Clipboard Sharing (+clipboard)", group_rdp)
-        self.chk_rdp_clipboard.setChecked(self.settings.rdp_enable_clipboard)
-        form_rdp.addRow(self.chk_rdp_clipboard)
-
-        self.chk_rdp_drive = QCheckBox("Map Local Shared Directory as Network Drive (/drive:Shared)", group_rdp)
-        self.chk_rdp_drive.setChecked(self.settings.rdp_enable_drive_redirection)
-        form_rdp.addRow(self.chk_rdp_drive)
-
-        folder_layout = QHBoxLayout()
-        self.edit_rdp_folder = QLineEdit(group_rdp)
-        self.edit_rdp_folder.setText(self.settings.get("rdp_shared_folder", os.path.expanduser("~/RDP_Shared")))
-        folder_layout.addWidget(self.edit_rdp_folder)
-
-        btn_browse_rdp = QPushButton("Browse...", group_rdp)
-        btn_browse_rdp.setIcon(get_icon("folder"))
-        btn_browse_rdp.clicked.connect(self._browse_rdp_folder)
-        folder_layout.addWidget(btn_browse_rdp)
-
-        form_rdp.addRow("RDP Shared Local Folder:", folder_layout)
-        vbox_rdp.addLayout(form_rdp)
-
-        lbl_info = QLabel(group_rdp)
-        lbl_info.setWordWrap(True)
-        lbl_info.setTextFormat(Qt.TextFormat.RichText)
-        lbl_info.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        lbl_info.setStyleSheet(
-            "QLabel { color: #3b82f6; font-size: 11px; font-weight: normal; "
-            "background-color: #1e1e1e; border: 1px solid #3c3c3c; border-radius: 4px; padding: 10px; margin-top: 10px; text-align: left; }"
+    def _browse_default_dir(self):
+        directory = QFileDialog.getExistingDirectory(
+            self, "Select Default Directory", os.path.expanduser(self.edit_default_dir.text())
         )
-        lbl_info.setText(
-            "<b>Shared Drive Mapping:</b> The configured folder will be automatically mapped as a network drive "
-            "('<i>\\\\tsclient\\Shared</i>' or drive letter) inside all remote Windows RDP sessions.<br><br>"
-            "<b>Clipboard:</b> Allows seamless copy and paste of text and data between Linux and RDP servers."
-        )
-        vbox_rdp.addWidget(lbl_info)
-
-        layout.addWidget(group_rdp)
-        layout.addStretch()
-        self.tab_widget.addTab(tab, get_icon("windows"), "RDP and Drives")
+        if directory:
+            self.edit_default_dir.setText(directory)
 
     def _browse_log_dir(self):
         directory = QFileDialog.getExistingDirectory(
@@ -246,12 +328,12 @@ class PreferencesDialog(QDialog):
         if directory:
             self.edit_log_dir.setText(directory)
 
-    def _browse_rdp_folder(self):
+    def _browse_config_dir(self):
         directory = QFileDialog.getExistingDirectory(
-            self, "Select RDP Shared Directory", os.path.expanduser(self.edit_rdp_folder.text())
+            self, "Select Config Directory", os.path.expanduser(self.edit_config_dir.text())
         )
         if directory:
-            self.edit_rdp_folder.setText(directory)
+            self.edit_config_dir.setText(directory)
 
     def _change_master_key(self):
         curr_pass = self.edit_curr_pass.text()
@@ -283,17 +365,53 @@ class PreferencesDialog(QDialog):
         self.edit_confirm_pass.clear()
         QMessageBox.information(self, "Security Updated", "Master Encryption Password updated successfully.")
 
+    def _reset_default_master_key(self):
+        curr_pass = self.edit_curr_pass.text()
+        if not curr_pass:
+            QMessageBox.warning(self, "Security Required", "Please enter your Current Master Password in the field above to authorize reset.")
+            return
+
+        if not self.master_key_mgr.verify_master_key(curr_pass):
+            QMessageBox.warning(self, "Access Denied", "Current Master Password is incorrect.")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Reset Master Password",
+            "Are you sure you want to reset the Master Password to default ('mR3m')?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.master_key_mgr.set_master_key("mR3m")
+            if self.parent() and hasattr(self.parent(), "master_password"):
+                self.parent().master_password = "mR3m"
+                if hasattr(self.parent(), "_auto_save_connections"):
+                    self.parent()._auto_save_connections()
+
+            self.edit_curr_pass.clear()
+            self.edit_new_pass.clear()
+            self.edit_confirm_pass.clear()
+            QMessageBox.information(self, "Reset Successful", "Master Password reset to default successfully.")
+
     def _on_save(self):
         selected_lang = self.combo_lang.currentData()
         self.settings.set("language", selected_lang)
-        self.settings.set("theme", self.combo_theme.currentText())
+        new_theme = self.combo_theme.currentText()
+        self.settings.set("theme", new_theme)
+        self.settings.set("console_theme", self.combo_console.currentText())
         self.settings.set("font_family", self.combo_font.currentText())
         self.settings.set("font_size", self.spin_font_size.value())
+        self.settings.set("default_directory", self.edit_default_dir.text().strip())
         self.settings.set("enable_logging", self.chk_logging.isChecked())
         self.settings.set("log_directory", self.edit_log_dir.text().strip())
         self.settings.set("scrollback_lines", self.spin_scrollback.value())
         self.settings.set("require_master_password_on_startup", self.chk_require_startup.isChecked())
         self.settings.set("rdp_enable_clipboard", self.chk_rdp_clipboard.isChecked())
         self.settings.set("rdp_enable_drive_redirection", self.chk_rdp_drive.isChecked())
-        self.settings.set("rdp_shared_folder", self.edit_rdp_folder.text().strip())
+        self.settings.set("rdp_shared_folder", self.edit_default_dir.text().strip())
+        self.settings.set("config_directory", self.edit_config_dir.text().strip())
+
+        from pyremotempc.ui.theme_manager import apply_theme
+        apply_theme(new_theme)
         self.accept()

@@ -8,27 +8,36 @@ The project serves as a **modern, native Python replacement and spiritual succes
 
 ## Current Version
 - **Version**: `0.1b` (First Beta Release)
-- **Version File**: `version.txt`
 
 ---
 
 ## Key Features
 
-- **mRemoteNG Compatibility**: Full import and export compatibility for mRemoteNG `confCons.xml` (v2.5) configuration files, preserving folder hierarchies, server settings, and encrypted credentials.
+- **Multi-Format Connection Import Engine**:
+  - **mRemoteNG**: Full import and export compatibility for `confCons.xml` (v2.5 and v2.6+ AEAD GCM) files.
+  - **SecureCRT**: Import XML session configurations (`<VanDyke>`).
+  - **Asbrú Connection Manager**: Import YAML configurations (`.yml` / `.yaml`) with automatic ` - copy` cleaning.
+  - **Microsoft RDCMan**: Import `.rdg` and XML remote desktop trees (`<RDCMan>`).
+  - **Interactive Import Dialog**: Choose a custom root container name and icon for imported folders.
 - **Modern & Fluid Qt6 UI**:
   - Dockable sidebar with horizontal slide toggle button.
   - Hierarchical connection tree with dedicated icons per OS / service (`windows`, `terminal`, `vnc`, `serial`, `connections`, etc.).
+  - Context menu options: **Up**, **Down**, and **Clone** (Duplicate node). Root container node is protected against deletion or move.
   - Real-time search filter across names, hostnames/IPs, usernames, and descriptions.
   - Property Inspector (`PropertyGridWidget`) collapsible vertically with a dedicated toggle button.
   - Window Geometry & State Persistence: Automatically saves and restores position, window dimensions, active screen, and maximized state upon application restart.
   - Enforced 11px font size across the entire application interface for clean, consistent UI readability.
+- **Single Instance per User**:
+  - Automatically detects if pyRemoteMPC is already open for the active Linux user ID via IPC sockets (`QLocalServer`/`QLocalSocket`). If launched again, it smoothly brings the existing window to the front and exits. Different Linux user accounts can run their own independent instances concurrently.
 - **Quick Connect Toolbar**: Connect instantly or save entries directly specifying `IP/HOSTNAME` / `SERIAL PORT` - `PROTOCOL` - `BAUD / PORT` - `DOMAIN` - `USER` - `PASSWORD`.
 - **Standardized Session Titles & Info Banners**:
   - Saved Connections: `PROTOCOL: SavedName (IP:Port / SerialPort)`
   - Quick Connections: `PROTOCOL: Host (IP:Port / SerialPort)`
-- **Security & Encryption**:
-  - Master Password protection.
-  - PBKDF2-HMAC-SHA256 key derivation (200,000 iterations + Salt) with AES symmetric encryption for secure password storage. Plaintext passwords are never saved to disk.
+- **Advanced Security & Access Control**:
+  - Master Password management in **Preferences & Options -> Security** tab.
+  - **Startup Password Option**: Choose whether to require the Master Password on application startup (`require_master_password_on_startup`).
+  - **Continue Without Passwords (Read-Only Mode)**: Allows opening the app to view, browse, and copy the full connection tree structure without decrypting passwords. Disk auto-saving is automatically blocked in this mode to protect the owner's encrypted `confCons.xml` on disk.
+  - **Zero Plaintext Storage**: Only salted PBKDF2-HMAC-SHA256 hashes (200,000 iterations + 16-byte random salt) are saved to `settings.json`. Connections are encrypted with AES-256-GCM / AES-128-CBC.
 
 ---
 
@@ -36,9 +45,9 @@ The project serves as a **modern, native Python replacement and spiritual succes
 
 | Protocol | Internal Engine | Highlight Features |
 | :--- | :--- | :--- |
-| **SSH2** | `paramiko` + `pyte` | Integrated VT100/xterm terminal emulator, infinite scrollback buffer, SSH private key support (RSA, ED25519, ECDSA, OpenSSH PEM, PuTTY `.ppk`), visual key selector dialog, and integrated **SFTP/FTP** file manager per session. |
+| **SSH2** | `paramiko` + `pyte` | Integrated VT100/xterm terminal emulator, infinite scrollback buffer, SSH private key support (RSA, ED25519, ECDSA, OpenSSH PEM, PuTTY `.ppk`), visual key selector dialog, and integrated **SFTP/FTP/SCP** file manager per session. |
 | **SSH1** | Legacy Crypto Engine | Compatibility engine specifically designed for legacy routers, switches, and ancient network hardware requiring obsolete ciphers (`3des-cbc`, `blowfish-cbc`, `diffie-hellman-group1-sha1`, `ssh-rsa`). |
-| **SFTP / FTP** | `paramiko` / `ftplib` | Integrated tabbed file transfer interface per active session with upload, download, and local/remote filesystem browsing. |
+| **SFTP / FTP / SCP** | `paramiko` / `ftplib` / `scp` | Integrated tabbed file transfer interface per active session with upload, download, and local/remote filesystem browsing supporting SFTP, FTP, and SCP protocols. |
 | **RDP** | `xfreerdp` (FreeRDP 2/3) | Native tab embedding via X11 XEmbed container (`xcb` backend). Dynamic resolution matching, clipboard sharing, local shared drive mapping, and credential redirection. |
 | **VNC** | Native / `vncviewer` | Remote desktop support with UltraVNC MSLogon (Type 11), Standard VNC (Type 2), or Auto security negotiation. |
 | **TELNET** | `telnetlib` + `pyte` | Interactive terminal console for unencrypted network devices. |
@@ -65,8 +74,13 @@ pyRemoteMPC/
     │   ├── settings.py           # JSON preferences manager (~/.config/pyremotempc/settings.json)
     │   ├── i18n.py               # Localization system (English)
     │   ├── version.py            # Dynamic version reader module
-    │   └── xml_parser.py         # mRemoteNG confCons.xml import/export parser
+    │   ├── xml_parser.py         # mRemoteNG confCons.xml import/export parser
+    │   ├── securecrt_parser.py   # SecureCRT XML session parser
+    │   ├── asbru_parser.py       # Asbrú Connection Manager YAML parser
+    │   └── rdcman_parser.py      # Microsoft RDCMan RDG/XML parser
     ├── crypto/
+    │   ├── aead_gcm.py           # AEAD GCM cipher engine
+    │   ├── rijndael_legacy.py    # Legacy Rijndael CBC cipher engine
     │   └── master_key_manager.py # AES encryption and PBKDF2 Master Password security
     ├── engine/
     │   ├── rdp_engine.py         # RDP session orchestrator using xfreerdp
@@ -92,13 +106,15 @@ pyRemoteMPC/
         ├── property_grid.py      # Node property inspector
         ├── tab_widget.py         # Active session tab manager
         ├── terminal_widget.py    # Terminal console renderer
+        ├── preferences_dialog.py # Preferences & Options (General, Terminal, RDP, Security)
         ├── sftp_widget.py        # Graphical file transfer interface
         ├── vnc_widget.py         # VNC rendering widget
         ├── icon_manager.py       # PNG icon loader per protocol and node type
         ├── dialogs/
         │   ├── about_dialog.py   # About pyRemoteMPC information dialog
+        │   ├── import_folder_dialog.py # Custom import root folder naming dialog
         │   ├── key_selector_dialog.py # SSH key selection dialog
-        │   └── master_password_dialog.py # Master key dialog
+        │   └── master_password_dialog.py # Master key & Continue Without Passwords dialog
         └── iconos/               # Application icon assets (`pyremotempc.png`, `serial.png`, etc.)
 ```
 

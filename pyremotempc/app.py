@@ -10,8 +10,32 @@ if project_root not in sys.path:
 os.environ["QT_QPA_PLATFORM"] = "xcb"
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QFont
+from PySide6.QtCore import Qt
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from pyremotempc.ui.main_window import MainWindow
 from pyremotempc.ui.icon_manager import get_icon
+
+
+def get_single_instance_name() -> str:
+    """Returns a unique IPC server name per Linux user ID."""
+    uid = getattr(os, "getuid", lambda: 1000)()
+    return f"pyremotempc_single_instance_{uid}"
+
+
+def try_activate_existing_instance(server_name: str) -> bool:
+    """
+    Attempts to connect to an existing running instance server.
+    If connected, sends ACTIVATE signal and returns True.
+    """
+    socket = QLocalSocket()
+    socket.connectToServer(server_name)
+    if socket.waitForConnected(500):
+        socket.write(b"ACTIVATE\n")
+        socket.flush()
+        socket.waitForBytesWritten(500)
+        socket.disconnectFromServer()
+        return True
+    return False
 
 
 def main():
@@ -21,6 +45,16 @@ def main():
     app.setOrganizationName("pyRemoteMPC")
     app.setWindowIcon(get_icon("pyremotempc"))
 
+    server_name = get_single_instance_name()
+
+    # Check if an instance is already running for this user
+    if try_activate_existing_instance(server_name):
+        print(f"pyRemoteMPC is already running for current user (UID {getattr(os, 'getuid', lambda: 1000)()}). Bringing existing window to front.")
+        sys.exit(0)
+
+    # Clean stale sockets from previous abnormal terminations
+    QLocalServer.removeServer(server_name)
+
     # Set base application font to 11px normal weight
     font = app.font()
     font.setPixelSize(11)
@@ -28,45 +62,41 @@ def main():
     font.setWeight(QFont.Weight.Normal)
     app.setFont(font)
 
-    # Set strict global stylesheet enforcing 11px non-bold for all widgets, 12px non-bold for titles, and clean line splitters
+    # Set strict global stylesheet enforcing 11px non-bold for all widgets (theme-neutral)
     app.setStyleSheet("""
         * {
             font-size: 11px;
             font-weight: normal;
         }
-        QWidget {
-            font-size: 11px;
-            font-weight: normal;
-        }
-        QGroupBox, QDockWidget::title {
-            font-size: 11px;
-            font-weight: normal;
-        }
-        QMainWindow::separator {
-            background-color: #252526;
-            width: 1px;
-            height: 1px;
-            image: none;
-        }
-        QSplitter::handle {
-            background-color: #1e1e1e;
-            image: none;
-        }
-        QSplitter::handle:vertical {
-            height: 2px;
-        }
-        QSplitter::handle:horizontal {
-            width: 2px;
-        }
-        QSplitter::handle:hover, QMainWindow::separator:hover {
-            background-color: #007acc;
-        }
     """)
 
     window = MainWindow()
+
+    # Apply saved theme (Dark, Light, Ocean, Forest) at application startup
+    from pyremotempc.ui.theme_manager import apply_theme
+    apply_theme(window.settings.theme)
+
+    # Setup single-instance IPC server to listen for new launch attempts by this user
+    server = QLocalServer()
+    server.listen(server_name)
+
+    def handle_ipc_connection():
+        conn = server.nextPendingConnection()
+        if conn:
+            conn.readyRead.connect(lambda: None)
+            window.setWindowState(window.windowState() & ~Qt.WindowState.WindowMinimized | Qt.WindowState.WindowActive)
+            window.showNormal()
+            window.raise_()
+            window.activateWindow()
+
+    server.newConnection.connect(handle_ipc_connection)
+
     window.show()
 
-    sys.exit(app.exec())
+    ret = app.exec()
+    server.close()
+    QLocalServer.removeServer(server_name)
+    sys.exit(ret)
 
 
 if __name__ == "__main__":
