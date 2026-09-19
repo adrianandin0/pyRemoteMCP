@@ -159,6 +159,11 @@ class PurePythonSSH1Engine(BaseProtocolEngine):
         self.is_connected = False
         if self.output_callback:
             self.output_callback("\r\n[SSH1 Session Closed]\r\n")
+        if getattr(self, "close_callback", None):
+            try:
+                self.close_callback()
+            except Exception:
+                pass
 
     def disconnect(self):
         self._stop_event.set()
